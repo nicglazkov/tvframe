@@ -1,0 +1,7 @@
+[Unit]
+Description=TV Frame watchdog: put the Streamer's TV Frame settings back if an update changed them
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/tvframe/tools/watchdog.py
+TimeoutStartSec=120

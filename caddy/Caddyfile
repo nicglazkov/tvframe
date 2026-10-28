@@ -1,0 +1,13 @@
+{
+	admin off
+	auto_https off
+}
+:8150 {
+	root * /srv
+	encode zstd gzip
+	@media path /media/*
+	header @media Cache-Control "public, max-age=86400"
+	@html path *.html /
+	header @html Cache-Control "no-cache"
+	file_server
+}

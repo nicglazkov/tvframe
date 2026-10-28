@@ -1,0 +1,15 @@
+{
+  "thermostat": "climate.thermostat",
+  "inside": "sensor.living_room_temperature",
+  "humidity": "sensor.living_room_humidity",
+  "co2": "sensor.living_room_co2",
+  "pm25": "sensor.living_room_pm25",
+  "music": "media_player.living_room_speaker",
+  "music2": "media_player.kitchen_speaker",
+  "washer": "sensor.washer_machine_state",
+  "washer_left": "sensor.washer_time_remaining",
+  "washer_done": "sensor.washer_end_time",
+  "dryer": "sensor.dryer_machine_state",
+  "dryer_left": "sensor.dryer_time_remaining",
+  "dryer_done": "sensor.dryer_end_time"
+}

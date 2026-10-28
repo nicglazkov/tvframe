@@ -1,0 +1,14 @@
+[Unit]
+Description=TV Frame: rebuild the TV photos when ~/tvframe/library changes
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 %h/tvframe/tools/library_watch.py
+WorkingDirectory=%h/tvframe
+Restart=always
+RestartSec=10
+StandardOutput=append:%h/tvframe/real/library.log
+StandardError=append:%h/tvframe/real/library.log
+
+[Install]
+WantedBy=default.target

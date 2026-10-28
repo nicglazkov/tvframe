@@ -1,0 +1,1614 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>TV Photos</title>
+<meta name="description" content="Folders and photos for the living room TV.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='3' y='6' width='26' height='18' rx='2' fill='%23222'/%3E%3Crect x='11' y='26' width='10' height='2' fill='%23222'/%3E%3C/svg%3E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="TV Photos">
+<style>
+/* TV photo manager. Talks to server/photos_api.py on port 8153. One file on purpose: no build, no libraries. */
+:root{
+  --bg:#FFFFFF; --bg-2:#F4F4F2; --ink:#161616; --ink-2:#5E5E5B; --ink-3:#8C8C88; --line:#E3E3DF; --line-2:#CFCFCA;
+  --accent:#1F5E4E; --accent-ink:#FFFFFF; --bad:#A2321F; --warn:#B07A12; --menu:#FFFFFF; --shadow:0 8px 28px rgba(0,0,0,.16),0 1px 3px rgba(0,0,0,.08);
+  --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#141414; --bg-2:#1E1E1D; --ink:#EDEDEA; --ink-2:#A9A9A4; --ink-3:#7C7C78; --line:#2C2C2A; --line-2:#3C3C39;
+  --accent:#5FB59C; --accent-ink:#0E1A16; --bad:#E0715C; --warn:#E0AE4A; --menu:#232322; --shadow:0 10px 30px rgba(0,0,0,.5);
+  color-scheme:dark;
+}}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.4 var(--sans)}
+button{font:inherit;color:inherit}
+.wrap{max-width:1200px;margin:0 auto;padding:0 16px calc(40px + env(safe-area-inset-bottom))}
+
+header{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line)}
+.bar{max-width:1200px;margin:0 auto;padding:12px 16px;display:flex;align-items:center;gap:12px;min-height:58px}
+.crumbs{display:flex;align-items:center;gap:6px;min-width:0;flex:1;font-size:18px;font-weight:600}
+.crumbs a{color:var(--ink-2);text-decoration:none;white-space:nowrap}
+.crumbs a:hover{color:var(--ink)}
+.crumbs .sep{color:var(--ink-3)}
+.crumbs .short{display:none;font-size:28px;line-height:1;padding:0 6px 0 0}
+.crumbs .here{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.status{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--ink-2);white-space:nowrap}
+.status i{width:8px;height:8px;border-radius:50%;background:var(--accent);flex:none}
+.status.building i{background:var(--warn);animation:pulse 1.1s ease-in-out infinite}
+.status.error i{background:var(--bad)}
+@keyframes pulse{50%{opacity:.25}}
+.btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line-2);background:var(--bg);border-radius:8px;padding:7px 12px;cursor:pointer;font-weight:500;white-space:nowrap}
+.btn:hover{background:var(--bg-2)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.primary:hover{filter:brightness(1.08)}
+.dots{width:34px;height:34px;display:inline-grid;place-items:center;border-radius:8px;border:1px solid var(--line-2);background:var(--bg);cursor:pointer;flex:none;padding:0}
+.dots:hover{background:var(--bg-2)}
+.dots svg{width:18px;height:18px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.progress{height:3px;background:var(--line)}
+.progress[hidden]{display:none}
+.progress i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
+.upmsg{font-size:13px;color:var(--ink-2);padding:8px 0 0}
+.upmsg:empty{display:none}
+
+/* folders */
+.folders{list-style:none;margin:12px 0 0;padding:0}
+.folder{display:flex;align-items:center;gap:14px;padding:10px 0;border-bottom:1px solid var(--line)}
+.folder a{display:flex;align-items:center;gap:14px;flex:1;min-width:0;color:inherit;text-decoration:none;padding:2px 0}
+.folder .cover{width:64px;height:48px;border-radius:6px;background:var(--bg-2);object-fit:cover;flex:none}
+.folder .name{font-weight:600;font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.folder .meta{font-size:13px;color:var(--ink-2)}
+.folder a:hover .name{text-decoration:underline;text-underline-offset:3px}
+.newrow{margin-top:16px}
+.folder .meta .sch{color:var(--ink-2)}
+.folder .meta .sch.wait{color:var(--warn)}
+
+/* what the TV shows right now, with skip buttons */
+.now{display:flex;align-items:center;gap:14px;margin-top:16px;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--bg-2);min-height:82px}
+.now .thumbs{display:flex;gap:4px;flex:none;height:56px}
+.now .thumbs img{height:56px;width:auto;max-width:96px;border-radius:6px;object-fit:cover;display:block;background:var(--line)}
+.now .txt{min-width:0;flex:1}
+.now .k{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:var(--ink-3)}
+.now .k i{width:7px;height:7px;border-radius:50%;background:var(--accent);flex:none}
+.now.off .k i{background:var(--ink-3)}
+.now .l{font-weight:600;font-size:15px;margin-top:2px;overflow-wrap:anywhere}
+.now .m{font-size:13px;color:var(--ink-2)}
+.now .ctl{display:flex;gap:8px;flex:none}
+.now .ctl .dots svg{width:20px;height:20px}
+.now .ctl .fav.on{color:var(--bad)}
+.rk .favb{background:none;border:0;padding:4px;color:var(--ink-3);cursor:pointer;border-radius:6px;display:inline-flex}
+.rk .favb svg{width:18px;height:18px}.rk .favb.on{color:var(--bad)}.rk .favb:hover{color:var(--ink)}
+.rk .lk{font-size:13px;line-height:1.35;min-width:150px}.rk .lk small{display:block;color:var(--ink-3);font-size:12px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.now .swap{animation:swapin .24s cubic-bezier(.2,0,0,1)}
+@keyframes swapin{from{opacity:0;transform:translateX(var(--from,8px))}to{opacity:1;transform:none}}
+@media (max-width:600px){.now{flex-wrap:wrap}.now .ctl{width:100%;justify-content:flex-end}}
+
+/* folder schedule */
+.note{margin-top:14px;padding:10px 12px;border-radius:10px;background:var(--bg-2);font-size:14px;color:var(--ink-2);display:flex;gap:10px;align-items:center;justify-content:space-between}
+.note a{color:var(--accent);font-weight:600;text-decoration:none;cursor:pointer;white-space:nowrap}
+.menu .dates{display:grid;grid-template-columns:auto 1fr 1fr;gap:6px 8px;align-items:center;padding:4px 10px 6px;font-size:14px;color:var(--ink-2)}
+.menu select{font:15px var(--sans);padding:7px 8px;border:1px solid var(--line-2);border-radius:6px;background:var(--bg);color:var(--ink);width:100%}
+.menu .chips{display:flex;flex-direction:column;gap:2px;padding:0 0 4px;max-height:220px;overflow:auto}
+.menu .chips button{display:flex;justify-content:space-between;gap:12px;width:100%;text-align:left;border:0;background:none;padding:8px 10px;border-radius:6px;cursor:pointer;font-size:14px}
+.menu .chips button span{color:var(--ink-2);white-space:nowrap}
+.menu .chips button:hover,.menu .chips button:focus-visible{background:var(--bg-2);outline:none}
+.menu .chips button.mine{font-weight:600}
+.menu .dis{opacity:.4;pointer-events:none}
+
+/* photos */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:18px 14px;margin-top:16px}
+.tile{position:relative;min-width:0}
+.tile .img{position:relative;display:block;width:100%;aspect-ratio:4/3;border-radius:6px;overflow:hidden;background:var(--bg-2);border:0;padding:0;cursor:zoom-in}
+.tile .img img{width:100%;height:100%;object-fit:cover;display:block}
+.tile .img .wait{position:absolute;inset:0;display:grid;place-items:center;font-size:13px;color:var(--ink-3);text-align:center;padding:10px}
+.tile .vid{position:absolute;left:8px;bottom:8px;background:rgba(0,0,0,.6);color:#fff;font-size:11px;font-weight:600;padding:2px 6px;border-radius:4px}
+.tile .dots{position:absolute;top:6px;right:6px;width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,.94);border:0;color:#161616;box-shadow:0 1px 4px rgba(0,0,0,.25)}
+.tile .dots:hover{background:#fff}
+.tile .fn{margin-top:6px;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tile .st{font-size:12px;color:var(--ink-2);display:flex;gap:6px;flex-wrap:wrap}
+.tile .st b{font-weight:600}
+.tile .st .off{color:var(--bad)}
+.tile.off .img img,.tile.similar .img img{opacity:.4;filter:grayscale(1)}
+.empty{color:var(--ink-2);padding:40px 0;text-align:center}
+.drop{position:fixed;inset:0;z-index:20;background:color-mix(in srgb,var(--accent) 18%,transparent);border:3px dashed var(--accent);display:grid;place-items:center;font-size:22px;font-weight:600;color:var(--ink);pointer-events:none}
+.drop[hidden]{display:none}
+
+/* the one menu: a popover by the button, a bottom sheet on phones */
+.menu{position:fixed;z-index:30;min-width:220px;max-width:min(340px,calc(100vw - 24px));background:var(--menu);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);padding:6px;font-size:15px}
+.menu[hidden]{display:none}
+.menu .h{font-size:12px;color:var(--ink-3);padding:6px 10px 2px;font-weight:600}
+.menu .t{padding:6px 10px 8px;color:var(--ink-2);font-size:13px;overflow-wrap:anywhere}
+.menu a.i{text-decoration:none;color:inherit;box-sizing:border-box}
+.menu button.i,.menu a.i{display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:0;background:none;padding:9px 10px;border-radius:6px;cursor:pointer}
+.menu .i:hover,.menu .i:focus-visible{background:var(--bg-2);outline:none}
+.menu button.i .ck{width:16px;flex:none;color:var(--accent);font-weight:700}
+.menu button.i.danger{color:var(--bad)}
+.menu hr{border:0;border-top:1px solid var(--line);margin:5px 0}
+.menu input{width:100%;font:16px var(--sans);padding:8px 10px;border:1px solid var(--line-2);border-radius:6px;background:var(--bg);color:var(--ink);margin:2px 0 8px}
+.menu .row{display:flex;gap:8px;justify-content:flex-end;padding:2px 4px 4px}
+.scrim{position:fixed;inset:0;z-index:29;background:rgba(0,0,0,.28)}
+.scrim[hidden]{display:none}
+@media (max-width:600px){
+  .menu{left:0 !important;right:0;bottom:0;top:auto !important;max-width:none;width:100%;border-radius:14px 14px 0 0;padding:8px 8px calc(12px + env(safe-area-inset-bottom));max-height:80vh;overflow:auto}
+  .menu button.i{padding:13px 12px;font-size:16px}
+  .grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 10px}
+  .bar .label{display:none}
+  .crumbs .full,.crumbs .sep{display:none}
+  .crumbs .short{display:inline}
+  .status:not(.building):not(.error) span{display:none}
+}
+
+dialog.view{border:0;padding:0;background:#000;max-width:100vw;max-height:100vh;width:100vw;height:100vh}
+dialog.view::backdrop{background:#000}
+dialog.view img,dialog.view video{width:100%;height:100%;object-fit:contain;display:block}
+dialog.view .x{position:absolute;top:calc(12px + env(safe-area-inset-top));right:12px;width:40px;height:40px;border-radius:50%;border:0;background:rgba(255,255,255,.9);color:#111;font-size:22px;cursor:pointer}
+dialog.view .cap{position:absolute;left:0;right:0;bottom:0;padding:12px 16px calc(14px + env(safe-area-inset-bottom));color:#fff;background:linear-gradient(transparent,rgba(0,0,0,.7));font-size:14px;pointer-events:none}
+/* clips: the caption goes under the video, not over its controls, so the seek bar can be dragged */
+dialog.view[open]:has(video){display:flex;flex-direction:column}
+dialog.view:has(video) #vbody{flex:1;min-height:0}
+dialog.view:has(video) .cap{position:static;background:none;padding-top:10px}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:14px;z-index:40;max-width:calc(100vw - 32px);opacity:0;transition:opacity .2s;pointer-events:none}
+.toast.show{opacity:1}
+.toast.bad{background:var(--bad);color:#fff}
+/* rebuild progress */
+.prog{margin-top:16px;padding:14px 14px 12px;border:1px solid var(--line);border-radius:12px;background:var(--bg-2);animation:swapin .24s cubic-bezier(.2,0,0,1)}
+.prog .top{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.prog .ttl{font-weight:600;font-size:15px}
+.prog .pct{font-variant-numeric:tabular-nums;font-weight:600;font-size:22px;letter-spacing:-.01em}
+.prog .sub{font-size:13px;color:var(--ink-2);margin-top:1px}
+.prog .track{height:6px;border-radius:3px;background:var(--line);margin:10px 0 12px;overflow:hidden}
+.prog .track i{display:block;height:100%;width:100%;background:var(--accent);border-radius:3px;transform-origin:left;transform:scaleX(var(--p,0));transition:transform .6s cubic-bezier(.2,0,0,1)}
+.prog ol{list-style:none;margin:0;padding:0;display:grid;gap:5px}
+.prog li{display:grid;grid-template-columns:18px 1fr auto;align-items:center;gap:8px;font-size:13.5px;color:var(--ink-2)}
+.prog li .ic{width:14px;height:14px;border-radius:50%;border:1.5px solid var(--line-2);display:grid;place-items:center;font-size:10px;line-height:1}
+.prog li.done{color:var(--ink)}
+.prog li.done .ic{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.prog li.running{color:var(--ink);font-weight:600}
+.prog li.running .ic{border-color:var(--warn);background:radial-gradient(var(--warn) 0 3px,transparent 3.5px);animation:pulse 1.1s ease-in-out infinite}
+.prog li.failed{color:var(--bad)}
+.prog li.failed .ic{border-color:var(--bad);background:var(--bad);color:#fff}
+.prog li .r{font-size:12px;color:var(--ink-3);font-weight:400;font-variant-numeric:tabular-nums;white-space:nowrap}
+.prog .chip{display:inline-block;margin-left:6px;font-size:10.5px;font-weight:600;letter-spacing:.03em;padding:1px 5px;border-radius:4px;border:1px solid var(--line-2);color:var(--ink-3);vertical-align:1px}
+.prog li.running .chip{border-color:var(--warn);color:var(--warn)}
+.prog .gpu{display:flex;align-items:center;gap:10px;margin-top:11px;padding-top:10px;border-top:1px solid var(--line);font-size:13px;color:var(--ink-2)}
+.prog .gpu .meter{flex:none;width:64px;height:4px;border-radius:2px;background:var(--line);overflow:hidden}
+.prog .gpu .meter i{display:block;height:100%;width:100%;background:var(--warn);transform-origin:left;transform:scaleX(var(--p,0));transition:transform .6s cubic-bezier(.2,0,0,1)}
+.prog.fail{border-color:color-mix(in srgb,var(--bad) 40%,var(--line))}
+
+/* folder: photos or ranking */
+.seg{display:inline-flex;max-width:100%;overflow-x:auto;scrollbar-width:none;margin-top:14px;padding:3px;border-radius:9px;background:var(--bg-2);border:1px solid var(--line);position:relative}
+.seg a{position:relative;z-index:1;white-space:nowrap;padding:6px 14px;border-radius:7px;font-size:14px;font-weight:600;color:var(--ink-2);text-decoration:none;transition:color .2s}
+.seg a[aria-current="page"]{color:var(--ink)}
+.seg .pill{position:absolute;top:3px;bottom:3px;border-radius:7px;background:var(--bg);box-shadow:0 1px 3px rgba(0,0,0,.12);transition:left .28s cubic-bezier(.2,0,0,1),width .28s cubic-bezier(.2,0,0,1)}
+.rk-intro{font-size:13.5px;color:var(--ink-2);margin:12px 0 4px;max-width:760px}
+.rk{width:100%;border-collapse:collapse;margin-top:8px;font-size:13.5px;font-variant-numeric:tabular-nums}
+.rk th{text-align:left;font-size:12px;font-weight:600;color:var(--ink-3);padding:8px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+.rk th button{border:0;background:none;padding:0;font:inherit;color:inherit;cursor:pointer;display:inline-flex;gap:4px;align-items:center}
+.rk th button:hover,.rk th[aria-sort] button{color:var(--ink)}
+.rk th .ar{display:inline-block;width:8px;transition:transform .2s}
+.rk th[aria-sort="ascending"] .ar{transform:rotate(180deg)}
+.rk td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+.rk tr.row{cursor:pointer;transition:background .15s}
+.rk tr.row:hover{background:var(--bg-2)}
+.rk tr.row.open{background:var(--bg-2)}
+.rk .n{color:var(--ink-3);width:34px}
+.rk .th img{width:72px;height:48px;object-fit:cover;border-radius:5px;display:block;background:var(--bg-2)}
+.rk .th{width:88px}
+.rk .fnw{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rk .fn small{display:block;color:var(--ink-3);font-size:12px;overflow:hidden;text-overflow:ellipsis}
+.prog.compact{cursor:pointer}.prog.compact ol,.prog.compact .gpu{display:none}
+.prog.compact .track{margin-bottom:2px}
+.rk tr.off .th img{opacity:.4;filter:grayscale(1)}
+.bar2{display:flex;align-items:center;gap:7px;min-width:76px}
+.bar2 span{width:30px;text-align:right}
+.bar2 i{flex:1;height:5px;border-radius:3px;background:var(--line);overflow:hidden;min-width:30px}
+.bar2 i b{display:block;height:100%;width:100%;background:var(--accent);transform-origin:left;transform:scaleX(var(--p));animation:grow .7s cubic-bezier(.2,0,0,1) both}
+.bar2.big i{height:7px}
+.bar2.big span{font-weight:600;color:var(--ink)}
+@keyframes grow{from{transform:scaleX(0)}}
+.rk .why{color:var(--ink-2);max-width:240px}
+.rk .pill2{display:inline-block;font-size:11.5px;font-weight:600;padding:1px 6px;border-radius:4px;background:var(--line);color:var(--ink-2);white-space:nowrap}
+.rk .pill2.on{background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent)}
+.rk .pill2.off{background:color-mix(in srgb,var(--bad) 14%,transparent);color:var(--bad)}
+.rk tr.det td{padding:0;border-bottom:0}
+.rk .detw{display:grid;grid-template-rows:0fr;transition:grid-template-rows .3s cubic-bezier(.2,0,0,1)}
+.rk tr.det.open .detw{grid-template-rows:1fr}
+.rk tr.det.open td{border-bottom:1px solid var(--line)}
+.rk .deti{overflow:hidden}
+.rk .detc{display:grid;grid-template-columns:minmax(0,320px) 1fr;gap:18px;padding:14px 8px 18px}
+.rk .detc img{width:100%;border-radius:8px;display:block;cursor:zoom-in;background:var(--bg-2)}
+.rk dl{display:grid;grid-template-columns:max-content 1fr;gap:5px 14px;margin:0;font-size:13.5px}
+.rk dt{color:var(--ink-3)}
+.rk dd{margin:0;overflow-wrap:anywhere}
+.sw{display:inline-flex;gap:3px;vertical-align:-2px}
+.sw i{width:16px;height:16px;border-radius:4px;border:1px solid rgba(0,0,0,.08)}
+.rk-clips{margin-top:22px}
+.rkf{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:14px 0 6px}
+.rkf button{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);background:var(--bg);color:var(--ink-2);border-radius:999px;padding:5px 12px;font:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;transition:background .15s,color .15s,border-color .15s}
+.rkf button span{font-weight:500;color:var(--ink-3);font-variant-numeric:tabular-nums}
+.rkf button:hover{border-color:var(--ink-3);color:var(--ink)}
+.rkf button.on{background:var(--ink);border-color:var(--ink);color:var(--bg)}.rkf button.on span{color:inherit;opacity:.7}
+.rkq{display:flex;align-items:center;gap:6px;margin-left:auto;border:1px solid var(--line);border-radius:999px;padding:4px 12px;background:var(--bg);color:var(--ink-3);min-width:min(260px,100%)}
+.rkq:focus-within{border-color:var(--accent)}
+.rkq svg{width:15px;height:15px;flex:none}
+.rkq input{border:0;outline:0;background:none;font:inherit;font-size:13.5px;color:var(--ink);width:100%;padding:2px 0}
+.rk .rk-none{padding:28px 8px;color:var(--ink-3);text-align:center}
+.rk-none .lnk{border:0;background:none;color:var(--accent);font:inherit;cursor:pointer;padding:0 4px;text-decoration:underline}
+@media (max-width:600px){.rkq{margin-left:0;flex:1 1 100%}}
+.rk-clips h3{font-size:14px;margin:0 0 4px}
+@media (max-width:760px){
+  .rk .c-sh,.rk .c-ex,.rk .c-no,.rk .c-fa,.rk .c-why{display:none}
+  .rk .detc{grid-template-columns:1fr}
+}
+@media (max-width:480px){.rk .c-ae,.rk .fn small{display:none}.rk .th img{width:56px;height:40px}.rk .th{width:66px}.rk .fnw{max-width:96px}.rk td,.rk th{padding-left:5px;padding-right:5px}.bar2{min-width:58px}.bar2 i{min-width:20px}.rk .th img{width:48px;height:36px}.rk .th{width:56px}.rk .pill2{white-space:normal}.rk .n{width:22px}}
+/* home: the way into every photo at once */
+.mix{margin-top:16px;padding:14px 16px 12px;border:1px solid var(--line);border-radius:12px}
+.mixtop{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.mix h2{margin:0;font-size:16px;font-weight:600}
+.mixn{font-size:13px;color:var(--ink-2);font-variant-numeric:tabular-nums}
+.mix input[type=range]{-webkit-appearance:none;appearance:none;display:block;width:100%;height:28px;margin:6px 0 0;background:transparent;cursor:pointer;--p:11%}
+.mix input[type=range]::-webkit-slider-runnable-track{height:4px;border-radius:2px;background:linear-gradient(to right,var(--accent) var(--p),var(--line-2) var(--p))}
+.mix input[type=range]::-moz-range-track{height:4px;border-radius:2px;background:var(--line-2)}
+.mix input[type=range]::-moz-range-progress{height:4px;border-radius:2px;background:var(--accent)}
+.mix input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;margin-top:-9px;border-radius:50%;background:var(--bg);border:1px solid var(--line-2);box-shadow:0 1px 4px rgba(0,0,0,.22);transition:transform .15s cubic-bezier(.2,0,0,1)}
+.mix input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;background:var(--bg);border:1px solid var(--line-2);box-shadow:0 1px 4px rgba(0,0,0,.22)}
+.mix input[type=range]:active::-webkit-slider-thumb{transform:scale(1.12)}
+.mix input[type=range]:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.mixends{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:12px;color:var(--ink-3)}
+.mixends #mixw{color:var(--ink-2);font-weight:600;text-align:center}
+.mixlinks{display:flex;flex-wrap:wrap;gap:6px 20px;margin-top:12px;padding-top:10px;border-top:1px solid var(--line)}
+.mixlinks a{display:inline-flex;align-items:center;gap:2px;font-size:14px;font-weight:600;color:var(--accent);text-decoration:none}
+.mixlinks a svg{width:16px;height:16px}
+.mixlinks a:hover{text-decoration:underline}
+.allcard{display:flex;align-items:center;gap:14px;margin-top:16px;padding:10px 14px 10px 10px;border:1px solid var(--line);border-radius:12px;color:inherit;text-decoration:none;transition:background .15s,border-color .15s}
+.allcard:hover{background:var(--bg-2);border-color:var(--line-2)}
+.allcard .mos{display:grid;grid-template-columns:repeat(2,31px);grid-template-rows:repeat(2,23px);gap:2px;border-radius:7px;overflow:hidden;flex:none;background:var(--line)}
+.allcard .mos img,.allcard .mos span{width:100%;height:100%;object-fit:cover;display:block;background:var(--bg-2)}
+.allcard .tx{flex:1;min-width:0}
+.allcard .tx b{display:block;font-size:16px;font-weight:600}
+.allcard .tx span{display:block;font-size:13px;color:var(--ink-2)}
+.allcard>svg{width:18px;height:18px;color:var(--ink-3);flex:none;transition:transform .2s cubic-bezier(.2,0,0,1)}
+.allcard:hover>svg{transform:translateX(3px)}
+
+/* all photos: tools */
+.atools{position:sticky;top:var(--hh,59px);z-index:4;background:var(--bg);margin:0 -16px;padding:12px 16px 10px;border-bottom:1px solid var(--line)}
+.arow{display:flex;gap:8px;align-items:center}
+.search{flex:1;min-width:0;position:relative}
+.search input{width:100%;font:15px var(--sans);height:36px;padding:0 30px 0 34px;border:1px solid var(--line-2);border-radius:9px;background:var(--bg);color:var(--ink);-webkit-appearance:none;appearance:none}
+.search input::-webkit-search-cancel-button{display:none}
+.search>svg{position:absolute;left:11px;top:50%;width:16px;height:16px;transform:translateY(-50%);color:var(--ink-3);pointer-events:none}
+.search .clr{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:22px;height:22px;border:0;border-radius:50%;background:var(--line);color:var(--ink-2);cursor:pointer;font-size:14px;line-height:1;display:grid;place-items:center;padding:0}
+.search .clr[hidden]{display:none}
+.iseg{display:inline-flex;padding:2px;border-radius:9px;border:1px solid var(--line);background:var(--bg-2);flex:none}
+.iseg button{min-width:32px;height:30px;padding:0 9px;border:0;border-radius:7px;background:none;display:grid;place-items:center;cursor:pointer;color:var(--ink-2);font-size:13.5px;font-weight:600;transition:background .2s,color .2s,box-shadow .2s;white-space:nowrap}
+.iseg button[aria-pressed="true"]{background:var(--bg);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.14)}
+.iseg svg{width:16px;height:16px}
+.sortsel{font:14px var(--sans);height:36px;padding:0 8px;border:1px solid var(--line-2);border-radius:9px;background:var(--bg);color:var(--ink);flex:none}
+.chipsrow{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin:10px -16px 0;padding:0 16px 1px}
+.chipsrow::-webkit-scrollbar{display:none}
+.chip2{flex:none;border:1px solid var(--line-2);background:var(--bg);border-radius:999px;padding:5px 11px;font-size:13px;font-weight:500;cursor:pointer;color:var(--ink-2);transition:background .2s,color .2s,border-color .2s}
+.chip2:hover{border-color:var(--ink-3)}
+.chip2 span{color:var(--ink-3);margin-left:5px;font-variant-numeric:tabular-nums;transition:color .2s}
+.chip2[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+.chip2[aria-pressed="true"] span{color:inherit;opacity:.65}
+.chip2.zero{opacity:.5}
+.acount{font-size:13px;color:var(--ink-3);margin:10px 0 0;display:flex;justify-content:space-between;gap:10px}
+.acount button{border:0;background:none;padding:0;color:var(--accent);font-weight:600;cursor:pointer;font-size:13px}
+
+/* all photos: folders you can fold */
+.ag{margin-top:6px;content-visibility:auto;contain-intrinsic-size:auto 520px}
+.agh{display:flex;align-items:center;gap:6px;padding:10px 0 8px;border-bottom:1px solid var(--line);margin-bottom:12px}
+.ag.shut .agh{margin-bottom:0}
+.agc{flex:1;display:flex;align-items:center;gap:8px;border:0;background:none;padding:4px 0;cursor:pointer;text-align:left;min-width:0}
+.agc svg{width:16px;height:16px;transition:transform .25s cubic-bezier(.2,0,0,1);color:var(--ink-3);flex:none}
+.ag.shut .agc svg{transform:rotate(-90deg)}
+.agc b{font-size:16px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.agc span{font-size:13px;color:var(--ink-3);white-space:nowrap}
+.gsel{display:inline-flex;align-items:center;gap:7px;border:0;background:none;cursor:pointer;color:var(--ink-2);font-size:13px;font-weight:500;padding:6px 4px;white-space:nowrap}
+.gsel:hover{color:var(--ink)}
+.box{position:relative;width:18px;height:18px;border-radius:5px;border:1.5px solid var(--line-2);display:grid;place-items:center;transition:background .15s,border-color .15s;flex:none;background:var(--bg)}
+.box svg{width:12px;height:12px;color:var(--accent-ink);opacity:0;transform:scale(.5);transition:opacity .15s,transform .22s cubic-bezier(.3,1.6,.5,1)}
+.box::after{content:"";width:8px;height:2px;border-radius:1px;background:var(--accent-ink);position:absolute;opacity:0}
+[aria-checked="true"] .box,[aria-checked="mixed"] .box{background:var(--accent);border-color:var(--accent)}
+[aria-checked="true"] .box svg{opacity:1;transform:none}
+[aria-checked="mixed"] .box::after{opacity:1}
+.ag.shut .agb{display:none}
+.ag.opening .agb{animation:reveal .3s cubic-bezier(.2,0,0,1)}
+@keyframes reveal{from{opacity:0;transform:translateY(-8px)}}
+
+/* all photos: tiles */
+.ag-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px 10px;padding-bottom:6px}
+.it{position:relative;min-width:0;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.ag-grid .im{display:block;position:relative;width:100%;aspect-ratio:4/3;border:0;padding:0;border-radius:8px;overflow:hidden;background:var(--bg-2);cursor:pointer;transition:transform .2s cubic-bezier(.2,0,0,1),box-shadow .2s}
+.it .im img{width:100%;height:100%;object-fit:cover;display:block;transition:opacity .25s,filter .25s}
+.it .im .wait{position:absolute;inset:0;display:grid;place-items:center;font-size:12px;color:var(--ink-3)}
+.ag-grid .it.sel .im{transform:scale(.92);box-shadow:0 0 0 2px var(--bg),0 0 0 4.5px var(--accent)}
+.it.off .im img,.it.auto .im img{opacity:.42;filter:grayscale(1)}
+.it.similar .im img{opacity:.62;filter:grayscale(.55)}
+.cb{position:absolute;z-index:2;top:3px;left:3px;width:36px;height:36px;padding:0;border:0;background:none;cursor:pointer;display:grid;place-items:center;transition:transform .2s cubic-bezier(.2,0,0,1)}
+.cb i{width:22px;height:22px;border-radius:50%;border:1.5px solid rgba(255,255,255,.95);background:rgba(0,0,0,.22);box-shadow:0 1px 3px rgba(0,0,0,.35);display:grid;place-items:center;transition:background .15s,border-color .15s,transform .2s cubic-bezier(.2,0,0,1)}
+.cb svg{width:13px;height:13px;color:var(--accent-ink);opacity:0;transform:scale(.4);transition:opacity .15s,transform .22s cubic-bezier(.3,1.6,.5,1)}
+.it.sel .cb i{background:var(--accent);border-color:var(--accent)}
+.it.sel .cb svg{opacity:1;transform:none}
+.cb:active i{transform:scale(.88)}
+@media (hover:hover){
+  .ag-grid .cb{opacity:0;transition:opacity .15s,transform .2s cubic-bezier(.2,0,0,1)}
+  .ag-grid .it:hover .cb,.selecting .ag-grid .cb,.ag-grid .it.sel .cb,.ag-grid .cb:focus-visible{opacity:1}
+  .ag-grid .it:hover .im{box-shadow:0 2px 10px rgba(0,0,0,.18)}
+  .ag-grid .it.sel:hover .im{box-shadow:0 0 0 2px var(--bg),0 0 0 4.5px var(--accent)}
+}
+.it .sc{position:absolute;right:6px;top:6px;font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums;padding:1px 6px;border-radius:6px;background:rgba(0,0,0,.58);color:#fff;line-height:1.5}
+.it .bl{position:absolute;left:6px;right:6px;bottom:6px;display:flex;gap:4px;flex-wrap:wrap;pointer-events:none}
+.bdg{font-size:11px;font-weight:600;padding:1px 6px;border-radius:5px;background:rgba(0,0,0,.62);color:#fff;line-height:1.55;white-space:nowrap}
+.bdg.off{background:var(--bad);color:#fff}
+.bdg.pick{background:var(--accent);color:var(--accent-ink)}
+.ag-grid .cap{margin-top:6px;font-size:12.5px;line-height:1.3;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.it.going{opacity:0;transform:scale(.85);transition:opacity .22s,transform .22s cubic-bezier(.2,0,0,1)}
+
+/* all photos: rows */
+.ag-list .it,.lhead{display:grid;grid-template-columns:30px 64px minmax(0,1.5fr) 118px 150px 92px minmax(0,1.3fr);align-items:center;gap:12px}
+.ag-list .it{padding:7px 8px 7px 2px;border-bottom:1px solid var(--line);cursor:pointer;transition:background .15s}
+.ag-list .it:hover{background:var(--bg-2)}
+.ag-list .it.sel{background:color-mix(in srgb,var(--accent) 11%,transparent)}
+.ag-list .cb{position:static;width:30px;height:30px}
+.ag-list .cb i{width:20px;height:20px;border-radius:6px;border-color:var(--line-2);background:var(--bg);box-shadow:none}
+.ag-list .im{width:64px;height:44px;border:0;padding:0;border-radius:5px;overflow:hidden;background:var(--bg-2);cursor:zoom-in;position:relative;display:block}
+.ag-list .im .vb{position:absolute;left:3px;bottom:3px;font-size:9.5px;font-weight:700;color:#fff;background:rgba(0,0,0,.6);border-radius:3px;padding:0 3px}
+.ag-list .nmw{min-width:0}
+.ag-list .nm{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ag-list .sub{font-size:12px;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ag-list .c-lv{font-size:13px;color:var(--ink-2)}
+.ag-list .c-why{font-size:13px;color:var(--ink-2);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lhead{padding:12px 8px 6px 2px;font-size:12px;font-weight:600;color:var(--ink-3);border-bottom:1px solid var(--line)}
+.pill3{display:inline-block;font-size:11.5px;font-weight:600;padding:1px 7px;border-radius:5px;background:var(--line);color:var(--ink-2);white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}
+.pill3.on{background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent)}
+.pill3.off{background:color-mix(in srgb,var(--bad) 14%,transparent);color:var(--bad)}
+.pill3.pick{background:var(--accent);color:var(--accent-ink)}
+.ag-list .stm{display:none}
+.cmeta{display:flex;align-items:center;gap:10px;min-width:0}
+.cmeta small{font-size:12px;color:var(--ink-3);white-space:nowrap}
+
+/* clips: how good each moment looks, with the part the TV plays */
+.spk{display:block;flex:none;overflow:visible}
+.spk .ln{fill:none;stroke:var(--ink-3);stroke-width:1.4;stroke-linejoin:round;stroke-linecap:round}
+.spk .hl{fill:color-mix(in srgb,var(--accent) 17%,transparent)}
+.spk .lb{fill:none;stroke:var(--accent);stroke-width:2.2;stroke-linejoin:round;stroke-linecap:round}
+.spk .hl{transform-box:fill-box;transform-origin:left;animation:grow .7s cubic-bezier(.2,0,0,1) both}
+
+/* the selection bar */
+.selbar{position:fixed;left:50%;bottom:calc(16px + env(safe-area-inset-bottom));z-index:25;transform:translate(-50%,calc(100% + 40px));transition:transform .34s cubic-bezier(.2,0,0,1),visibility 0s .34s;visibility:hidden;display:flex;align-items:center;gap:6px;padding:7px;background:var(--menu);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);max-width:calc(100vw - 24px)}
+.selbar.show{transform:translate(-50%,0);visibility:visible;transition:transform .34s cubic-bezier(.2,0,0,1)}
+.selbar .lead{display:flex;align-items:center;gap:2px}
+.selbar .n{font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums;padding:0 8px 0 2px}
+.selbar .all{border:0;background:none;color:var(--accent);font:inherit;font-size:13px;font-weight:600;cursor:pointer;padding:6px;white-space:nowrap;border-radius:6px}
+.selbar .all:hover{background:var(--bg-2)}
+.selbar .all[hidden]{display:none}
+.selbar .x{width:32px;height:32px;border-radius:8px;border:0;background:none;cursor:pointer;color:var(--ink-2);display:grid;place-items:center;padding:0}
+.selbar .x svg{width:16px;height:16px}
+.selbar .x:hover{background:var(--bg-2);color:var(--ink)}
+.selbar .acts{display:flex;gap:6px}
+.selbar .btn{padding:7px 11px;border-color:var(--line)}
+.selbar .btn svg{width:16px;height:16px;flex:none}
+.selbar .btn.danger{color:var(--bad)}
+.selbar .sep{width:1px;height:24px;background:var(--line);flex:none;margin:0 2px}
+.selbar .bump{animation:bump .26s cubic-bezier(.2,0,0,1)}
+@keyframes bump{40%{transform:scale(1.07)}}
+body.selecting .wrap{padding-bottom:calc(110px + env(safe-area-inset-bottom))}
+body.selecting .toast{bottom:calc(84px + env(safe-area-inset-bottom))}
+.toast{transform:translate(-50%,10px);transition:opacity .2s,transform .28s cubic-bezier(.2,0,0,1),bottom .3s cubic-bezier(.2,0,0,1);display:flex;align-items:center;gap:14px}
+.toast.show{transform:translate(-50%,0)}
+.toast.act{pointer-events:auto}
+.toast .u{border:0;background:none;color:inherit;font:inherit;font-weight:700;cursor:pointer;padding:2px 0;text-decoration:underline;text-underline-offset:3px;white-space:nowrap}
+
+/* duplicates */
+.dintro{font-size:13.5px;color:var(--ink-2);margin:14px 0 2px;max-width:780px}
+.dg{margin-top:16px;border:1px solid var(--line);border-radius:12px;padding:12px 12px 6px;content-visibility:auto;contain-intrinsic-size:auto 440px}
+.dgh{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+.dgh b{font-size:15px;font-weight:600}
+.dgh span{display:block;font-size:13px;color:var(--ink-2)}
+.dgr{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(210px,250px);gap:12px;overflow-x:auto;padding:3px 3px 10px;margin:0 -3px;scroll-snap-type:x proximity;scrollbar-width:thin}
+.dc{margin:0;border:1px solid var(--line);border-radius:10px;padding:8px;display:flex;flex-direction:column;gap:8px;scroll-snap-align:start;transition:border-color .3s,box-shadow .3s,background .3s;min-width:0}
+.dc.pick{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent);background:color-mix(in srgb,var(--accent) 6%,var(--bg))}
+.dc.also{border-color:color-mix(in srgb,var(--accent) 55%,var(--line))}
+.dc.also .tag{background:color-mix(in srgb,var(--accent) 80%,#000);color:#fff}
+.dc .im{position:relative;display:block;width:100%;aspect-ratio:4/3;border:0;padding:0;border-radius:7px;overflow:hidden;background:var(--bg-2);cursor:zoom-in}
+.dc .im img{width:100%;height:100%;object-fit:cover;display:block;transition:opacity .3s,filter .3s}
+.dc.off .im img{opacity:.42;filter:grayscale(1)}
+.dc .tag{position:absolute;left:6px;top:6px;font-size:11px;font-weight:600;padding:1px 7px;border-radius:5px;line-height:1.6;background:rgba(0,0,0,.62);color:#fff;transition:background .3s,color .3s}
+.dc.pick .tag{background:var(--accent);color:var(--accent-ink)}
+.dc.off .tag{background:var(--bad);color:#fff}
+.dc .nm{font-size:12.5px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dc .met{display:grid;grid-template-columns:58px 1fr;gap:3px 8px;align-items:center;font-size:12.5px;color:var(--ink-3)}
+.dc .met .bar2{min-width:0}
+.dc .met .bar2 span{width:24px}
+.dc .why{font-size:12.5px;color:var(--ink-2);line-height:1.35;min-height:2.7em}
+.dc .act{margin-top:auto;display:flex;align-items:center;gap:6px;min-height:36px}
+.dc .act .btn{flex:1;justify-content:center;padding:6px 8px;font-size:13px}
+.dc .shown{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--accent);padding:0 4px}
+.dc .shown svg{width:15px;height:15px}
+.dc .act>*{animation:swapin .26s cubic-bezier(.2,0,0,1)}
+.btn[disabled]{opacity:.45;pointer-events:none}
+
+/* folder ranking: clips */
+.rk .c-spk{width:112px}.rk .c-spk svg{width:100px;height:auto;display:block}
+.rk .lk,.rk .c-st{min-width:130px}
+/* phone: each clip is a card (thumb, name and heart on top, then score, look and TV status), no sideways scrolling */
+@media (max-width:600px){
+  .rk-clips table.rk,.rk-clips tbody{display:block}
+  .rk-clips thead{display:none}
+  .rk-clips tr{display:grid;grid-template-columns:72px minmax(0,1fr) 34px;gap:6px 12px;padding:12px 0;border-bottom:1px solid var(--line)}
+  .rk-clips td{display:block;border:0;padding:0;min-width:0}
+  .rk-clips td.th{grid-row:1/span 4;width:auto}.rk-clips .th img{width:72px;height:48px}
+  .rk-clips td.fn{grid-column:2}.rk-clips td.c-fv{grid-column:3;grid-row:1}
+  .rk-clips td.c-q,.rk-clips td.lk,.rk-clips td.c-st{grid-column:2/4}
+  .rk-clips .fnw{max-width:none}.rk-clips .fn small{display:block}
+  .rk-clips .clipst{flex-direction:row;flex-wrap:wrap;align-items:center;gap:6px 8px}.rk-clips .clipst small{max-width:none}
+}
+.rk .clipst{display:flex;flex-direction:column;gap:5px;align-items:flex-start}
+.rk .clipst small{color:var(--ink-2);font-size:12px;line-height:1.3;max-width:240px}
+.btn.sm{padding:5px 10px;font-size:13px}
+.btn.sm.ghost{background:none;color:var(--ink-2)}.btn.sm.ghost:hover{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 45%,var(--line))}
+.rk .detact{margin-top:10px}
+
+@media (max-width:760px){
+  .ag-list .it,.lhead{grid-template-columns:30px 56px minmax(0,1fr) 96px}
+  .ag-list .c-st,.ag-list .c-lv,.ag-list .c-why,.lhead .c-st,.lhead .c-lv,.lhead .c-why{display:none}
+  .ag-list .im{width:56px;height:40px}
+  .ag-list .stm{display:inline}
+  .ag-list .stm .pill3{font-size:10.5px;padding:0 5px;margin-right:4px;vertical-align:1px}
+  .rk .c-spk,.rk .c-mo{display:none}
+}
+@media (max-width:600px){
+  .arow.top{flex-wrap:wrap}
+  .arow.top .search{flex:1 1 100%}
+  .arow.top .sortsel{margin-left:auto;font-size:13px;padding:0 4px;min-width:0}
+  .arow.top .iseg button{padding:0 7px;font-size:13px}
+  .atools{position:static;margin-top:4px}
+  .ag-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:3px}
+  .ag-grid .im{border-radius:3px;aspect-ratio:1}
+  .ag-grid .cap{display:none}
+  .ag-grid .it.sel .im{transform:scale(.86);box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--accent)}
+  .it .sc{top:auto;bottom:4px;right:4px;font-size:10.5px;padding:0 4px}
+  .it .bl{left:4px;bottom:4px;right:30px}
+  .bdg{font-size:10px;padding:0 4px}
+  .ag-grid .bdg.lv{display:none}
+  .cb{top:0;left:0}
+  .cb i{width:20px;height:20px}
+  .selbar{left:0;right:0;max-width:none;transform:translateY(calc(100% + 40px));flex-direction:column;align-items:stretch;gap:6px;padding:8px 8px calc(8px + env(safe-area-inset-bottom));bottom:0;border-radius:16px 16px 0 0;border-bottom:0}
+  .selbar.show{transform:none}
+  .selbar .lead{justify-content:space-between}
+  .selbar .sep{display:none}
+  .selbar .acts{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+  .selbar .btn{flex-direction:column;gap:3px;font-size:12px;padding:8px 2px;border:0;background:var(--bg-2);justify-content:center}
+  .selbar .btn .lg{display:none}
+  body.selecting .wrap{padding-bottom:calc(150px + env(safe-area-inset-bottom))}
+  body.selecting .toast{bottom:calc(136px + env(safe-area-inset-bottom))}
+  .dgr{grid-auto-columns:minmax(190px,72vw)}
+  .dgh{flex-wrap:wrap}
+}
+@media (min-width:601px){.selbar .btn .sh{display:none}}
+@media (prefers-reduced-motion:reduce){*{transition:none !important;animation:none !important}}
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <nav class="crumbs" id="crumbs" aria-label="Where you are"></nav>
+    <span class="status" id="status" role="status"><i></i><span></span></span>
+    <span id="actions" style="display:flex;gap:8px"></span>
+  </div>
+  <div class="progress" id="progress" hidden><i></i></div>
+</header>
+<main class="wrap">
+  <div class="upmsg" id="upmsg"></div>
+  <div id="progbox"></div>
+  <div id="nowbox"></div>
+  <div id="mixbox" hidden></div>
+  <div id="view"></div>
+</main>
+<input type="file" id="pick" multiple hidden accept="image/jpeg,image/heic,image/png,video/mp4,video/quicktime,.heic,.jpg,.jpeg,.png,.mp4,.mov">
+<div class="drop" id="drop" hidden></div>
+<div class="scrim" id="scrim" hidden></div>
+<div class="menu" id="menu" role="menu" hidden></div>
+<dialog class="view" id="viewer"><button class="x" id="vx" aria-label="Close">×</button><div id="vbody" style="height:100%"></div><div class="cap" id="vcap"></div></dialog>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+const API = `${location.protocol}//${location.hostname}:8153`;
+const BRIDGE = `${location.protocol}//${location.hostname}:8154`;   // server/bridge.py: what the TV shows, skip commands
+const CHEV = d => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d ? 'M9 5l7 7-7 7' : 'M15 5l-7 7 7 7'}"/></svg>`;
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const fmtDate = d => d && /^\d{4}-\d\d-\d\d/.test(d) ? `${MON[+d.slice(5, 7) - 1]} ${+d.slice(8, 10)}, ${d.slice(0, 4)}` : '';
+const DOTS = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>';
+const LEVELS = [['less', 'Less often'], ['normal', 'Normal'], ['more', 'More often'], ['most', 'Most often'], ['fav', 'Favorite, the most of all']];
+const HEART = f => `<svg viewBox="0 0 24 24" fill="${f ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 20.5s-7.5-4.6-9.3-9.4C1.6 8 3.6 4.5 7.1 4.5c2 0 3.6 1.1 4.9 2.9 1.3-1.8 2.9-2.9 4.9-2.9 3.5 0 5.5 3.5 4.4 6.6-1.8 4.8-9.3 9.4-9.3 9.4z"/></svg>`;
+
+const OK = /\.(jpe?g|heic|png|mp4|mov)$/i;
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+let lib = { folders: [], status: {} }, uploading = false, pollT = null, reachable = true;
+
+// ---------- data ----------
+async function refresh() {
+  clearTimeout(pollT);
+  try { lib = await fetch(API + '/lib', { cache: 'no-store' }).then(r => r.json()); reachable = true; }
+  catch { reachable = false; }
+  render();
+  const busy = lib.status?.state === 'building' || uploading || lib.folders.some(f => f.files.some(x => x.state === 'new'));
+  pollT = setTimeout(refresh, busy ? 4000 : 30000);
+}
+async function post(path, body) {
+  const r = await fetch(API + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json());
+  if (!r.ok) throw new Error(r.error || 'Something went wrong.');
+  return r;
+}
+async function act(path, body, done) {
+  closeMenu();
+  try { const r = await post(path, body); if (done) toast(typeof done === 'function' ? done(r) : done); }
+  catch (e) { toast(e.message, true); }
+  refresh();
+}
+
+// ---------- views ----------
+const route = () => { const m = location.hash.match(/^#\/f\/([^/]+)/); return m ? decodeURIComponent(m[1]) : null; };
+const tab = () => /^#\/f\/[^/]+\/rank$/.test(location.hash) ? 'rank' : 'photos';
+window.addEventListener('hashchange', () => { window.scrollTo(0, 0); render(); });
+
+function render() {
+  const name = route(), folder = lib.folders.find(f => f.name === name);
+  const st = reachable ? lib.status || {} : { state: 'error', text: 'Cannot reach the server' };
+  $('status').className = 'status ' + (st.state || '');
+  $('status').lastElementChild.textContent = st.text || '';
+  if (isAll()) return renderAll();
+  delete $('view').dataset.shell;
+  if (name && !folder && reachable && lib.folders.length) { location.hash = ''; return; }
+  if (folder) return renderFolder(folder);
+  $('crumbs').innerHTML = '<span class="here">TV Photos</span>';
+  $('actions').innerHTML = `<button class="btn" id="newf" type="button">+ <span class="label">New folder</span></button>
+    <button class="dots" type="button" id="appmenu" aria-label="More" aria-haspopup="menu">${DOTS}</button>`;
+  $('newf').onclick = e => newFolderMenu(e.currentTarget);
+  $('appmenu').onclick = e => menu.hidden || opener !== e.currentTarget ? appMenu(e.currentTarget) : closeMenu();
+  $('nowbox').hidden = false; renderNow(); renderMix();
+  const rows = lib.folders.map(f => {
+    const cover = f.files.find(x => x.thumb && !x.video) || f.files.find(x => x.thumb);
+    const off = f.files.filter(x => x.state === 'off').length, nw = f.files.filter(x => x.state === 'new').length;
+    const meta = [`${f.files.length} ${f.files.length === 1 ? 'item' : 'items'}`, off && `${off} off`, nw && `${nw} being added`].filter(Boolean).join(' · ')
+      + (f.schedule ? `<br><span class="sch ${f.schedule.on ? '' : 'wait'}">${esc(f.schedule.text)}</span>` : '');
+    return `<li class="folder">
+      <a href="#/f/${encodeURIComponent(f.name)}">${cover ? `<img class="cover" src="${esc(cover.thumb)}" alt="">` : '<span class="cover"></span>'}
+        <span style="min-width:0"><div class="name">${esc(f.name)}</div><div class="meta">${meta}</div></span></a>
+      <button class="dots" type="button" data-fmenu="${esc(f.name)}" aria-label="Options for ${esc(f.name)}" aria-haspopup="menu">${DOTS}</button></li>`;
+  }).join('');
+  const every = lib.folders.flatMap(f => f.files), vids = every.filter(x => x.video).length;
+  const mos = lib.folders.map(f => f.files.find(x => x.thumb && !x.video)).filter(Boolean).slice(0, 4);
+  const allcard = every.length ? `<a class="allcard" href="#/all"><span class="mos">${[0, 1, 2, 3].map(i => mos[i] ? `<img src="${esc(mos[i].thumb)}" alt="">` : '<span></span>').join('')}</span>
+    <span class="tx"><b>All photos</b><span>${plural(every.length - vids, 'photo', 'photos')} and ${plural(vids, 'clip', 'clips')} from every folder. Pick many at once, hide them or change how often they come up, and sort out duplicates.</span></span>${CHEV(1)}</a>` : '';
+  $('view').innerHTML = lib.folders.length ? `${allcard}<ul class="folders">${rows}</ul>`
+    : `<p class="empty">${reachable ? 'No folders yet. Make one with New folder.' : 'Cannot reach the server on port 8153.'}</p>`;
+}
+
+/* home: how many of every 100 slides are clips (prod.json clip_share, the TV's Sequencer spreads them out) */
+let mixSaved = null, mixT;
+function mixWords(n) {
+  if (n <= 0) return 'Photos only';
+  if (n >= 100) return 'Clips only';
+  if (n === 50) return 'Photos and clips take turns';
+  return n < 50 ? `About 1 clip every ${Math.round(100 / n)} slides` : `About 1 photo every ${Math.round(100 / (100 - n))} slides`;
+}
+function paintMix(n) {
+  $('mixn').textContent = `${n} in 100 are clips`;
+  $('mixw').textContent = mixWords(n);
+  $('mixr').style.setProperty('--p', n + '%');
+}
+function renderMix() {
+  const box = $('mixbox');
+  box.hidden = !reachable || !lib.folders?.length;
+  if (mixSaved != null && lib.mix === mixSaved) mixSaved = null;
+  const n = mixSaved ?? lib.mix ?? 11;
+  if (!box.firstChild) {
+    box.innerHTML = `<section class="mix" aria-labelledby="mixh">
+      <div class="mixtop"><h2 id="mixh">Photos and clips</h2><span class="mixn" id="mixn"></span></div>
+      <input type="range" id="mixr" min="0" max="100" step="1" aria-labelledby="mixh" aria-describedby="mixw">
+      <div class="mixends"><span>More photos</span><span id="mixw"></span><span>More clips</span></div>
+      <div class="mixlinks"><a href="#/all/rank">Photo ranking ${CHEV(1)}</a><a href="#/all/clips">Clip ranking ${CHEV(1)}</a></div></section>`;
+    const r = $('mixr');
+    r.oninput = () => paintMix(+r.value);
+    r.onchange = () => {
+      const v = +r.value; mixSaved = v; clearTimeout(mixT);
+      mixT = setTimeout(() => post('/mix', { clips: v }).then(() => toast(`${v} in 100 slides are clips now. The TV picks it up in a minute or two.`), err => toast(err.message, true)), 200);
+    };
+  }
+  if (document.activeElement !== $('mixr') || mixSaved == null) { $('mixr').value = n; paintMix(n); }
+}
+
+function stateLine(x) {
+  const lvl = x.level !== 'normal' && x.state === 'on' ? `<span>${LEVELS.find(l => l[0] === x.level)[1]}</span>` : '';
+  const s = { on: 'On TV', off: '<b class="off">Off</b>', similar: 'Similar photo shown instead', new: 'Being added', season: 'Waits for its dates' }[x.state];
+  return `<div class="st"><span>${s}</span>${lvl}</div>`;
+}
+function renderFolder(f) {
+  $('nowbox').hidden = true; $('mixbox').hidden = true;
+  $('crumbs').innerHTML = `<a href="#" aria-label="All folders"><span class="full">TV Photos</span><span class="short">‹</span></a><span class="sep">/</span><span class="here">${esc(f.name)}</span>`;
+  $('actions').innerHTML = `<button class="btn primary" id="add" type="button">+ <span class="label">Add photos</span></button>
+    <button class="dots" type="button" data-fmenu="${esc(f.name)}" aria-label="Folder options" aria-haspopup="menu">${DOTS}</button>`;
+  $('add').onclick = () => $('pick').click();
+  const base = '#/f/' + encodeURIComponent(f.name);
+  const seg = `<nav class="seg" aria-label="Show"><span class="pill"></span><a href="${base}" ${tab() === 'photos' ? 'aria-current="page"' : ''}>Photos</a><a href="${base}/rank" ${tab() === 'rank' ? 'aria-current="page"' : ''}>Ranking</a></nav>`;
+  if (tab() === 'rank') { renderRank(f, seg); placePill(); return; }
+  delete $('view').dataset.rk;
+  $('view').innerHTML = seg + (f.files.length ? `<div class="grid">${f.files.map((x, i) => `
+    <div class="tile ${x.state}">
+      <button class="img" type="button" data-view="${i}" aria-label="View ${esc(x.file)}">
+        ${x.thumb ? `<img src="${esc(x.thumb)}" alt="" loading="lazy">` : '<span class="wait">Being added to the TV</span>'}
+        ${x.video ? '<span class="vid">VIDEO</span>' : ''}</button>
+      <button class="dots" type="button" data-pmenu="${i}" aria-label="Options for ${esc(x.file)}" aria-haspopup="menu">${DOTS}</button>
+      <div class="fn" title="${esc(x.file)}">${esc(x.file)}</div>${stateLine(x)}
+    </div>`).join('')}</div>`
+    : '<p class="empty">This folder is empty. Use Add photos, or drop photos anywhere on this page.</p>');
+  placePill();
+  if (f.schedule) {
+    $('view').querySelector('.seg').insertAdjacentHTML('afterend', `<div class="note"><span>${f.schedule.on ? 'On the TV' : 'Off the TV'} by schedule: ${esc(f.schedule.text.split(' · ')[0])}, every year.</span><a id="chsched" role="button" tabindex="0">Change</a></div>`);
+    $('chsched').onclick = e => scheduleMenu(e.currentTarget, f.name);
+  }
+}
+
+// ---------- menus ----------
+const menu = $('menu'), scrim = $('scrim');
+let opener = null;
+function openMenu(btn, html, wire) {
+  opener = btn;
+  menu.innerHTML = html; menu.hidden = false; scrim.hidden = innerWidth > 600;
+  const r = btn.getBoundingClientRect(), mw = menu.offsetWidth, mh = menu.offsetHeight;
+  menu.style.left = Math.max(12, Math.min(innerWidth - mw - 12, r.right - mw)) + 'px';
+  menu.style.top = (r.bottom + 6 + mh > innerHeight - 8 ? Math.max(8, r.top - mh - 6) : r.bottom + 6) + 'px';
+  wire && wire(menu);
+  (menu.querySelector('input') || menu.querySelector('button'))?.focus();
+}
+function closeMenu() { if (menu.hidden) return; menu.hidden = true; scrim.hidden = true; opener?.focus?.(); opener = null; }
+scrim.onclick = closeMenu;
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenu(); });
+document.addEventListener('mousedown', e => { if (!menu.hidden && !menu.contains(e.target) && !e.target.closest('.dots,#newf,#chsched,[data-mb]')) closeMenu(); });
+window.addEventListener('resize', closeMenu);
+const item = (k, label, extra = '') => `<button class="i ${extra}" type="button" role="menuitem" data-k="${k}"><span class="ck"></span>${label}</button>`;
+const check = (k, label, on) => `<button class="i" type="button" role="menuitemradio" aria-checked="${on}" data-k="${k}"><span class="ck">${on ? '✓' : ''}</span>${label}</button>`;
+const onKey = (m, map) => m.addEventListener('click', e => { const b = e.target.closest('[data-k]'); if (b && map[b.dataset.k]) map[b.dataset.k](b); });
+
+function confirmMenu(btn, text, yes, run) {
+  openMenu(btn, `<div class="t">${text}</div><div class="row"><button class="btn" data-k="no" type="button">Cancel</button><button class="btn primary" style="background:var(--bad);border-color:var(--bad);color:#fff" data-k="yes" type="button">${yes}</button></div>`,
+    m => onKey(m, { no: closeMenu, yes: run }));
+}
+function nameMenu(btn, title, value, label, run) {
+  openMenu(btn, `<div class="h">${title}</div><div style="padding:4px 6px 0"><input id="nm" value="${esc(value)}" maxlength="60" autocomplete="off" aria-label="${title}"></div>
+    <div class="row"><button class="btn" data-k="no" type="button">Cancel</button><button class="btn primary" data-k="ok" type="button">${label}</button></div>`, m => {
+    const go = () => { const v = $('nm').value.trim(); if (v) run(v); };
+    onKey(m, { no: closeMenu, ok: go });
+    $('nm').addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+    $('nm').select();
+  });
+}
+function newFolderMenu(btn) {
+  nameMenu(btn, 'New folder', '', 'Create', v => act('/folder/new', { name: v }, r => { location.hash = '#/f/' + encodeURIComponent(r.name); return `Made ${r.name}.`; }));
+}
+function folderMenu(btn, name) {
+  const f = lib.folders.find(x => x.name === name);
+  const inside = route() === name;
+  openMenu(btn, `<div class="h">${esc(name)}</div>
+    ${inside ? item('add', 'Add photos') : item('open', 'Open')}
+    ${item('sched', f.schedule ? 'Schedule: ' + esc(f.schedule.text.split(' · ')[0]) : 'Schedule')}
+    ${item('rename', 'Rename')}<hr>${item('remove', 'Remove folder', 'danger')}`, m => onKey(m, {
+    sched: () => scheduleMenu(btn, name),
+    open: () => { closeMenu(); location.hash = '#/f/' + encodeURIComponent(name); },
+    add: () => { closeMenu(); $('pick').click(); },
+    rename: () => nameMenu(btn, 'Rename folder', name, 'Rename', v => act('/folder/rename', { from: name, to: v }, r => {
+      if (inside) location.hash = '#/f/' + encodeURIComponent(r.name); return `Renamed to ${r.name}.`; })),
+    remove: () => confirmMenu(btn, `Remove <b>${esc(name)}</b> and its ${f.files.length} items? They leave the TV and go to library-trash on the server, so they can be brought back.`,
+      'Remove folder', () => act('/folder/remove', { name }, () => { location.hash = ''; return `Removed ${name}.`; })),
+  }));
+}
+function photoMenu(btn, i) {
+  const fname = route(), f = lib.folders.find(x => x.name === fname), x = f.files[i];
+  const ready = x.state !== 'new', others = lib.folders.filter(o => o.name !== fname);
+  const html = `<div class="h">${esc(x.file)}</div>
+    ${x.thumb ? item('view', 'View') : ''}
+    ${ready ? `<hr><div class="h">How often it comes up</div>${LEVELS.map(([k, l]) => check('lv-' + k, l, x.level === k)).join('')}` : ''}
+    ${ready ? `<hr>${x.state === 'off' ? item('on', 'Show on TV') : item('off', 'Turn off on TV')}` : ''}
+    ${x.state === 'similar' ? '<div class="t">A very similar photo is shown instead. Turn that one off and this one takes its place.</div>' : ''}
+    ${x.state === 'new' ? '<div class="t">Being added to the TV. This takes a few minutes.</div>' : ''}
+    ${others.length ? item('move', 'Move to folder') : ''}<hr>${item('remove', 'Remove', 'danger')}`;
+  const map = {
+    view: () => { closeMenu(); view(f, i); },
+    on: () => act('/hide', { id: x.id, hidden: false }, 'Back on the TV in a few seconds.'),
+    off: () => act('/hide', { id: x.id, hidden: true }, 'Off the TV in a few seconds.'),
+    move: () => openMenu(btn, `<div class="h">Move ${esc(x.file)} to</div>${others.map((o, j) => item('to' + j, esc(o.name))).join('')}<hr>${item('back', 'Back')}`, m => onKey(m, {
+      back: () => photoMenu(btn, i),
+      ...Object.fromEntries(others.map((o, j) => ['to' + j, () => act('/move', { album: fname, file: x.file, to: o.name }, `Moved to ${o.name}.`)])),
+    })),
+    remove: () => confirmMenu(btn, `Remove <b>${esc(x.file)}</b>? It leaves the TV and goes to library-trash on the server.`, 'Remove',
+      () => act('/remove', { album: fname, file: x.file }, 'Removed. It leaves the TV in a few minutes.')),
+  };
+  for (const [k, l] of LEVELS) map['lv-' + k] = () => act('/boost', { id: x.id, level: k }, `${k === 'fav' ? 'A favorite now' : l}. The TV updates in a few seconds.`);
+  openMenu(btn, html, m => onKey(m, map));
+}
+document.addEventListener('click', e => {
+  const fm = e.target.closest('[data-fmenu]'); if (fm) return menu.hidden || opener !== fm ? folderMenu(fm, fm.dataset.fmenu) : closeMenu();
+  const pm = e.target.closest('[data-pmenu]'); if (pm) return menu.hidden || opener !== pm ? photoMenu(pm, +pm.dataset.pmenu) : closeMenu();
+  const v = e.target.closest('[data-view]');
+  if (v) { const f = lib.folders.find(x => x.name === route()); if (f.files[+v.dataset.view].thumb) view(f, +v.dataset.view); else photoMenu(v.parentElement.querySelector('.dots'), +v.dataset.view); }
+});
+
+// ---------- schedule: a folder shows only between two dates each year ----------
+function scheduleMenu(btn, name) {
+  const f = lib.folders.find(x => x.name === name); if (!f) return;
+  const cur = f.schedule || f.suggest?.[0] || { from: '11-20', to: '01-06' };
+  let ranged = !!f.schedule;
+  const days = m => [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1];
+  const sel = (id, n, v, lab) => `<select id="${id}" aria-label="${lab}">${Array.from({ length: n }, (_, i) => `<option value="${i + 1}" ${i + 1 === v ? 'selected' : ''}>${id.endsWith('m') ? MON[i] : i + 1}</option>`).join('')}</select>`;
+  const pick = (k, mmdd) => `${sel(k + 'm', 12, +mmdd.slice(0, 2), k === 'f' ? 'Start month' : 'End month')}${sel(k + 'd', days(+mmdd.slice(0, 2)), +mmdd.slice(3), k === 'f' ? 'Start day' : 'End day')}`;
+  const chips = (f.suggest || []).map((x, j) => `<button type="button" data-chip="${j}" class="${x.name === 'From these photos' ? 'mine' : ''}">${esc(x.name)}<span>${esc(x.label)}</span></button>`).join('');
+  openMenu(btn, `<div class="h">When ${esc(name)} is on the TV</div>
+    ${check('all', 'All year', !ranged)}${check('range', 'Only between these dates', ranged)}
+    <div class="dates ${ranged ? '' : 'dis'}" id="dates"><span>From</span>${pick('f', cur.from)}<span>To</span>${pick('t', cur.to)}</div>
+    ${chips ? `<hr><div class="h">Suggestions</div><div class="chips">${chips}</div>` : ''}
+    <div class="t" id="schint" style="padding-top:2px"></div>
+    <div class="row"><button class="btn" data-k="no" type="button">Cancel</button><button class="btn primary" data-k="ok" type="button">Save</button></div>`, m => {
+    const two = n => String(n).padStart(2, '0');
+    const val = k => `${two($(k + 'm').value)}-${two($(k + 'd').value)}`;
+    const hint = () => {
+      if (!ranged) { $('schint').textContent = 'Shows all year, like now.'; return; }
+      const f0 = val('f'), t0 = val('t');
+      $('schint').textContent = f0 === t0 ? 'Pick two different dates.' : `Shows from ${MON[+f0.slice(0, 2) - 1]} ${+f0.slice(3)} to ${MON[+t0.slice(0, 2) - 1]} ${+t0.slice(3)} every year${f0 > t0 ? ', across New Year' : ''}. The rest of the year it stays off the TV.`;
+    };
+    const fixDays = k => { const mm = +$(k + 'm').value, d = Math.min(+$(k + 'd').value, days(mm)); $(k + 'd').outerHTML = sel(k + 'd', days(mm), d, k === 'f' ? 'Start day' : 'End day'); $(k + 'd').onchange = hint; };
+    const setMode = r => {
+      ranged = r;
+      m.querySelector('[data-k=all]').setAttribute('aria-checked', !r); m.querySelector('[data-k=all] .ck').textContent = r ? '' : '✓';
+      m.querySelector('[data-k=range]').setAttribute('aria-checked', r); m.querySelector('[data-k=range] .ck').textContent = r ? '✓' : '';
+      $('dates').classList.toggle('dis', !r); hint();
+    };
+    for (const k of ['f', 't']) { $(k + 'm').onchange = () => { fixDays(k); hint(); }; $(k + 'd').onchange = hint; }
+    m.querySelectorAll('[data-chip]').forEach(b => b.onclick = () => {
+      const x = f.suggest[+b.dataset.chip];
+      $('fm').value = +x.from.slice(0, 2); fixDays('f'); $('fd').value = +x.from.slice(3);
+      $('tm').value = +x.to.slice(0, 2); fixDays('t'); $('td').value = +x.to.slice(3);
+      setMode(true);
+    });
+    onKey(m, {
+      all: () => setMode(false), range: () => setMode(true), no: closeMenu,
+      ok: () => {
+        if (ranged && val('f') === val('t')) return hint();
+        act('/folder/schedule', ranged ? { name, from: val('f'), to: val('t') } : { name, always: true }, r => r.text === 'Always' ? `${name} shows all year.` : `${name}: ${r.text}.`);
+      },
+    });
+    hint();
+  });
+}
+
+// ---------- the iPhone Shortcut ----------
+function appMenu(btn) {
+  openMenu(btn, `<div class="h">Send photos from iPhone</div>
+    <div class="t">Add the Send to TV shortcut on your iPhone, then pick photos in Photos, tap Share, and choose Send to TV. It asks which folder. Works at home and over Tailscale.</div>
+    <a class="i" href="send-to-tv.shortcut" download="Send to TV.shortcut" role="menuitem"><span class="ck"></span>Get the shortcut</a>`);
+}
+
+// ---------- now on TV ----------
+const EYEOFF = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"/><path d="M10.6 5.1A10 10 0 0 1 12 5c5 0 8.6 4.2 9.6 6.5a1.4 1.4 0 0 1 0 1c-.4.9-1.2 2.2-2.4 3.4M6.6 6.6C4.6 8 3.1 10 2.4 11.5a1.4 1.4 0 0 0 0 1C3.4 14.8 7 19 12 19c1.8 0 3.4-.5 4.8-1.3"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>';
+let nowData = null, nowKey = '', nowT = null, nowDir = 0;
+const byId = () => Object.fromEntries(lib.folders.flatMap(f => f.files.filter(x => x.id).map(x => [x.id, { ...x, folder: f.name }])));
+async function pollNow(fast = false) {
+  clearTimeout(nowT);
+  if (!document.hidden && !inner()) {
+    try { nowData = await fetch(BRIDGE + '/now', { cache: 'no-store' }).then(r => r.json()); } catch { nowData = null; }
+    renderNow();
+  }
+  nowT = setTimeout(pollNow, fast ? 700 : 4000);
+}
+function renderNow() {
+  const box = $('nowbox'); if (inner()) return;
+  const n = nowData?.now, live = n && nowData.age != null && nowData.age < 150;
+  const ids = live ? (n.members?.length ? n.members : [n.id]) : [];
+  const key = live ? ids.join('+') : 'off';
+  if (key === nowKey && box.firstElementChild) return;
+  nowKey = key;
+  if (!live) {
+    box.innerHTML = `<div class="now off"><div class="txt"><div class="k"><i></i>Now on TV</div><div class="m">The TV is not showing photos right now.</div></div></div>`;
+    return;
+  }
+  const m = byId(), ps = ids.map(id => m[id]).filter(Boolean);
+  const places = [...new Set(ps.map(p => p.place).filter(Boolean))];
+  const dates = [...new Set(ps.map(p => fmtDate(p.date)).filter(Boolean))];
+  const title = places.join(' and ') || dates[0] || (ps[0]?.file ?? 'A photo');
+  const sub = [places.length ? dates.join(', ') : '', ps.length > 1 ? `${ps.length} photos side by side` : '', n.role === 'home' ? 'behind the home screen' : ''].filter(Boolean).join(' · ');
+  box.innerHTML = `<div class="now"><div class="thumbs swap" style="--from:${nowDir * 10}px">${ps.map(p => `<img src="${esc(p.thumb)}" alt="">`).join('')}</div>
+    <div class="txt swap" style="--from:${nowDir * 10}px"><div class="k"><i></i>Now on TV</div><div class="l">${esc(title)}</div>${sub ? `<div class="m">${esc(sub)}</div>` : ''}</div>
+    <div class="ctl">${ps.length === 1 ? `<button class="dots fav${ps[0].level === 'fav' ? ' on' : ''}" type="button" id="nowfav" aria-pressed="${ps[0].level === 'fav'}" aria-label="${ps[0].level === 'fav' ? 'Remove from favorites' : 'Favorite: comes up the most'}">${HEART(ps[0].level === 'fav')}</button>` : ''}<button class="dots" type="button" id="nowhide" aria-label="${ps.length === 1 ? 'Hide from TV' : 'Hide one of these from TV'}" title="Hide from TV">${EYEOFF}</button><button class="dots" type="button" data-cmd="prev" aria-label="Previous photo">${CHEV(0)}</button>
+      <button class="dots" type="button" data-cmd="next" aria-label="Next photo">${CHEV(1)}</button>
+      <button class="dots" type="button" id="nowmenu" aria-label="Options for this photo" aria-haspopup="menu">${DOTS}</button></div></div>`;
+  nowDir = 0;
+  box.querySelectorAll('[data-cmd]').forEach(b => b.onclick = () => skip(b.dataset.cmd));
+  const fb = $('nowfav');
+  if (fb) fb.onclick = () => {
+    const p = ps[0], on = p.level !== 'fav';
+    act('/boost', { id: p.id, level: on ? 'fav' : 'normal' }, () => { p.level = on ? 'fav' : 'normal'; nowKey = ''; renderNow(); return on ? 'A favorite now. It comes up the most.' : 'Not a favorite any more.'; });
+  };
+  $('nowhide').onclick = e => ps.length === 1
+    ? act('/hide', { id: ps[0].id, hidden: true }, () => { skip('next'); return 'Off the TV. Skipped to the next photo.'; })
+    : nowMenu(e.currentTarget, ps);
+  $('nowmenu').onclick = e => menu.hidden || opener !== e.currentTarget ? nowMenu(e.currentTarget, ps) : closeMenu();
+}
+async function skip(cmd) {
+  try {
+    const r = await fetch(BRIDGE + '/cmd', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cmd }) }).then(r => r.json());
+    if (!r.ok) throw new Error(r.error || 'The TV did not take it.');
+    nowDir = cmd === 'next' ? 1 : -1;
+    pollNow(true); setTimeout(() => pollNow(), 1600);
+  } catch (e) { toast(e.message, true); }
+}
+function nowMenu(btn, ps) {
+  const html = ps.map((p, j) => `${j ? '<hr>' : ''}<div class="h">${esc(p.file)}</div>
+    ${p.level === 'fav' ? '' : item('v' + j, 'Favorite')}${p.level === 'more' || p.level === 'most' || p.level === 'fav' ? item('n' + j, p.level === 'fav' ? 'Not a favorite' : 'Back to normal') : item('m' + j, 'See more often')}
+    ${item('o' + j, 'Hide from TV')}${item('f' + j, 'Open its folder')}`).join('');
+  const map = {};
+  ps.forEach((p, j) => {
+    map['m' + j] = () => act('/boost', { id: p.id, level: 'more' }, 'Comes up more often from now on.');
+    map['n' + j] = () => act('/boost', { id: p.id, level: 'normal' }, 'Back to normal.');
+    map['v' + j] = () => act('/boost', { id: p.id, level: 'fav' }, 'A favorite now. It comes up the most.');
+    map['o' + j] = () => act('/hide', { id: p.id, hidden: true }, () => { skip('next'); return 'Off the TV. Skipped to the next photo.'; });
+    map['f' + j] = () => { closeMenu(); location.hash = '#/f/' + encodeURIComponent(p.folder); };
+  });
+  openMenu(btn, html, m => onKey(m, map));
+}
+window.addEventListener('hashchange', () => { if (!inner()) { nowKey = ''; pollNow(); } });
+
+// ---------- rebuild progress ----------
+let prog = null, progT = null, progOpen = false;
+document.addEventListener('click', e => { if (e.target.closest('.prog.compact') || (inner() && e.target.closest('.prog .top'))) { progOpen = !progOpen; renderProg(); } });
+window.addEventListener('hashchange', () => { progOpen = false; renderProg(); });
+const dur = s => s == null ? '' : s < 60 ? `${s} s` : s < 3600 ? `${Math.round(s / 60)} min` : `${Math.floor(s / 3600)} h ${Math.round(s % 3600 / 60)} min`;
+async function pollProg() {
+  clearTimeout(progT);
+  if (!document.hidden) {
+    try { prog = await fetch(API + '/progress', { cache: 'no-store' }).then(r => r.json()); } catch { prog = null; }
+    renderProg();
+  }
+  progT = setTimeout(pollProg, prog?.state === 'running' ? 3000 : 20000);
+}
+function renderProg() {
+  const box = $('progbox'), p = prog;
+  if (!p || (p.state !== 'running' && p.state !== 'failed')) {
+    box.innerHTML = '';
+    if (!uploading) { $('progress').hidden = true; }
+    return;
+  }
+  const run = p.steps.find(s => s.state === 'running'), pct = p.percent ?? 0;
+  if (!uploading) { $('progress').hidden = false; $('progress').firstElementChild.style.width = pct + '%'; }
+  const g = p.gpu, gpuNow = run?.gpu;
+  const gline = g ? `<span class="meter" style="--p:${g.util / 100}"><i></i></span><span>GPU ${g.util}% busy${g.encoders ? ` · ${g.encoders} video encoder${g.encoders > 1 ? 's' : ''}` : ''} · ${(g.mem_used / 1024).toFixed(1)} of ${Math.round(g.mem_total / 1024)} GB.
+      ${p.gpu_done.length ? 'Done on the GPU: ' + esc(p.gpu_done.join(', ')) + '.' : gpuNow ? 'Its first GPU step is running now.' : 'No GPU steps yet.'}</span>` : '';
+  const li = s => `<li class="${s.state}"><span class="ic">${s.state === 'done' ? '✓' : s.state === 'failed' ? '!' : ''}</span>
+      <span>${esc(s.label)}${s.gpu ? '<span class="chip">GPU</span>' : ''}</span>
+      <span class="r">${s.state === 'done' ? dur(s.secs) : s.state === 'running' ? (s.of ? `${s.count.toLocaleString()} of ${s.of.toLocaleString()} ${s.unit} · ` : '') + dur(s.secs) : ''}</span></li>`;
+  const fail = p.state === 'failed';
+  const html = `<section class="prog ${fail ? 'fail' : ''} ${inner() && !progOpen ? 'compact' : ''}" aria-label="TV update progress">
+    <div class="top"><div><div class="ttl">${fail ? 'The last TV update stopped' : 'Updating the TV'}</div>
+      <div class="sub">${fail ? 'It tries again by itself in 10 minutes. Log: real/library.log on the server.' : `${run ? esc(run.label) : 'Starting'} · ${dur(p.elapsed)} so far`}</div></div>
+      ${fail ? '' : `<div class="pct">${pct}%</div>`}</div>
+    ${fail ? '' : `<div class="track"><i style="--p:${pct / 100}"></i></div>`}
+    <ol>${p.steps.map(li).join('')}</ol>
+    ${gline ? `<div class="gpu">${gline}</div>` : ''}</section>`;
+  // update in place so the bars glide instead of jumping
+  const old = box.firstElementChild;
+  if (old) old.classList.toggle('compact', inner() && !progOpen);
+  if (old && old.classList.contains('fail') === fail) {
+    const t = document.createElement('div'); t.innerHTML = html; const nw = t.firstElementChild;
+    old.querySelector('.top').innerHTML = nw.querySelector('.top').innerHTML;
+    old.querySelector('ol').innerHTML = nw.querySelector('ol').innerHTML;
+    const tr = old.querySelector('.track i'); if (tr) tr.style.setProperty('--p', pct / 100);
+    const go = old.querySelector('.gpu'), gn = nw.querySelector('.gpu');
+    if (go && gn) { go.querySelector('.meter i') && go.querySelector('.meter').style.setProperty('--p', g.util / 100); go.lastElementChild.innerHTML = gn.lastElementChild.innerHTML; }
+  } else box.innerHTML = html;
+}
+
+// ---------- ranking ----------
+let rankData = null, rankFor = null, rankSort = { k: 'quality', dir: -1 }, rankOpen = null;
+// ranking filters: which ones show (state) and a name/place search, remembered per browser
+const RF = (() => { try { return { photos: 'all', clips: 'all', q: '', ...JSON.parse(localStorage.getItem('tvf-rankf') || '{}') }; } catch { return { photos: 'all', clips: 'all', q: '' }; } })();
+const saveRF = () => { try { localStorage.setItem('tvf-rankf', JSON.stringify(RF)); } catch {} };
+const RFILT = {
+  photos: [['all', 'All', () => true], ['on', 'On the TV', r => r.scored && r.is_rep && !r.off], ['similar', 'Similar, not shown', r => r.scored && !r.is_rep && !r.off],
+    ['off', 'Off', r => r.off], ['fav', 'Favorites', r => r.level === 'fav']],
+  clips: [['all', 'All', () => true], ['on', 'On the TV', c => !c.off && !c.auto], ['auto', 'Hidden automatically', c => c.auto && !c.off],
+    ['off', 'Off', c => c.off], ['fav', 'Favorites', c => c.level === 'fav']],
+};
+const rfMatch = (x, kind) => {
+  const f = (RFILT[kind].find(f => f[0] === RF[kind]) || RFILT[kind][0])[2], q = RF.q.trim().toLowerCase();
+  return f(x) && (!q || [x.file, x.place, x.album, x.camera].some(v => v && String(v).toLowerCase().includes(q)));
+};
+const rfBar = (list, kind) => `<div class="rkf" role="toolbar" aria-label="Filter">${RFILT[kind].map(([id, label, f]) => {
+  const n = list.filter(f).length;
+  return id !== 'all' && !n && RF[kind] !== id ? '' : `<button type="button" class="${RF[kind] === id ? 'on' : ''}" aria-pressed="${RF[kind] === id}" data-rkf="${kind}:${id}">${label}<span>${n.toLocaleString()}</span></button>`;
+}).join('')}<label class="rkq"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 16l4.5 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><input type="search" id="rkq" placeholder="Name, place, folder or camera" value="${esc(RF.q)}" aria-label="Search"></label></div>`;
+const pc = v => v == null ? '–' : Math.round(v * 100);
+const bar = (v, big) => v == null ? '<span style="color:var(--ink-3)">–</span>' : `<div class="bar2 ${big ? 'big' : ''}"><span>${pc(v)}</span><i><b style="--p:${Math.max(0, Math.min(1, v))}"></b></i></div>`;
+const RCOLS = [
+  ['rank', '#', 'n'], [null, 'Photo', 'th'], ['file', 'Name', 'fn'], ['quality', 'Score', 'c-q'], ['aesthetic', 'Looks', 'c-ae'],
+  ['sharpness', 'Sharp', 'c-sh'], ['exposure', 'Exposure', 'c-ex'], ['noise', 'Clean', 'c-no'], ['faces', 'Faces', 'c-fa'],
+  ['share', 'Chance', 'c-sha'], ['reason', 'Why', 'c-why'],
+];
+async function renderRank(f, seg, only) {   // only: 'rank' (photos) or 'clips', for every folder (f.name '*')
+  const here = () => only ? isAll() && atab() === only : route() === f.name && tab() === 'rank';
+  if (rankFor !== f.name) { rankData = null; rankFor = f.name; rankOpen = null; }
+  if (!rankData) {
+    $('view').innerHTML = seg + '<p class="empty">Loading the scores…</p>';
+    try { rankData = await fetch(`${API}/rank?album=${encodeURIComponent(f.name)}`, { cache: 'no-store' }).then(r => r.json()); }
+    catch { $('view').innerHTML = seg + '<p class="empty">Cannot reach the server on port 8153.</p>'; placePill(); return; }
+    if (!here()) return;
+  }
+  const d = rankData, k = rankSort.k, dir = rankSort.dir;
+  const key = `${f.name}|${only || ''}|${k}|${dir}|${d.generated}|${RF.photos}|${RF.clips}|${RF.q}`;
+  if ($('view').dataset.rk === key && $('view').querySelector('.rk')) return;   // the 4 s refresh: keep the table as is
+  const all = f.name === '*';
+  if (only === 'clips') {
+    $('view').innerHTML = seg + (d.clips.length ? clipTable(d.clips, true, true) : '<p class="empty">No clips yet.</p>');
+    $('view').dataset.rk = key; placePill(); return;
+  }
+  const val = r => k === 'rank' ? (r.rank ?? 1e9) : k === 'file' ? r.file.toLowerCase() : (r[k] ?? -1);
+  const rows = d.photos.filter(r => rfMatch(r, 'photos')).sort((a, b) => (val(a) > val(b) ? 1 : val(a) < val(b) ? -1 : 0) * (k === 'rank' || k === 'file' ? -dir : dir));
+  const scored = d.photos.filter(r => r.scored).length;
+  const state = r => r.off ? '<span class="pill2 off">Off</span>' : !r.scored ? '<span class="pill2">Being added</span>' : !r.is_rep ? '<span class="pill2">Similar shown</span>' : '<span class="pill2 on">On TV</span>';
+  const chance = r => !r.scored ? '–' : r.off ? '<span class="pill2 off">Off</span>' : !r.is_rep ? '<span class="pill2">Similar shown</span>' : r.share ? `${r.share >= 1 ? r.share.toFixed(1) : r.share.toFixed(2)}%` : '–';
+  const head = RCOLS.map(([key, label, cls]) => `<th class="${cls}" ${key === k ? `aria-sort="${(key === 'rank' || key === 'file' ? -dir : dir) > 0 ? 'ascending' : 'descending'}"` : ''}>${key ? `<button type="button" data-sort="${key}">${label}<span class="ar">${key === k ? '▾' : ''}</span></button>` : label}</th>`).join('');
+  const body = rows.length ? rows.map(r => {
+    const i = d.photos.indexOf(r);
+    return `<tr class="row ${r.off ? 'off' : ''} ${rankOpen === r.id ? 'open' : ''}" data-r="${i}" tabindex="0" aria-expanded="${rankOpen === r.id}">
+      <td class="n">${r.rank ?? ''}</td><td class="th">${r.thumb ? `<img src="${esc(r.thumb)}" alt="" loading="lazy">` : ''}</td>
+      <td class="fn" title="${esc(r.file)}"><div class="fnw">${esc(r.file)}<small>${esc([all && r.album, r.place, fmtDate(r.date)].filter(Boolean).join(' · '))}</small></div></td>
+      <td class="c-q">${bar(r.quality, true)}</td><td class="c-ae">${bar(r.aesthetic_norm)}</td><td class="c-sh">${bar(r.sharpness)}</td>
+      <td class="c-ex">${bar(r.exposure)}</td><td class="c-no">${bar(r.noise)}</td><td class="c-fa">${r.scored ? r.faces || '–' : '–'}</td>
+      <td class="c-sha">${chance(r)}</td><td class="c-why why">${esc(r.reason || '')}</td></tr>
+      <tr class="det ${rankOpen === r.id ? 'open' : ''}"><td colspan="${RCOLS.length}"><div class="detw"><div class="deti">${rankOpen === r.id ? detail(r, d) : ''}</div></div></td></tr>`;
+  }).join('') : `<tr><td colspan="${RCOLS.length}" class="rk-none">No photos match. <button type="button" class="lnk" data-rkf="photos:all">Show all</button></td></tr>`;
+  const clips = d.clips.length && !only ? clipTable(d.clips) : '';
+  $('view').innerHTML = seg + `<p class="rk-intro">${scored} of ${d.photos.length} photos${all ? ' from every folder' : ''} ranked by the photo scorer. <b>Score</b> is the overall rating, built from <b>Looks</b> (how good it looks to a model trained on thousands of people's ratings), <b>Sharp</b>, <b>Exposure</b> and <b>Clean</b> (low noise), plus faces in focus. Similar shots are grouped and only the best one shows. <b>Chance</b> is how likely it is to be the next photo on the TV, after your How often settings. Tap a row for everything.</p>
+    ${rfBar(d.photos, 'photos')}<div style="overflow-x:auto"><table class="rk"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>${clips}`;
+  $('view').dataset.rk = key;
+  placePill();
+}
+function clipTable(cs, all, filt) {   // filt: the clip ranking tab, with its own filter bar
+  const scored = cs.filter(c => c.clip), auto = cs.filter(c => c.auto).length, off = cs.filter(c => c.off).length;
+  const shown = filt ? cs.filter(c => rfMatch(c, 'clips')) : cs;
+  const rows = !shown.length ? `<tr><td colspan="10" class="rk-none">No clips match. <button type="button" class="lnk" data-rkf="clips:all">Show all</button></td></tr>` : [...shown].sort((a, b) => (b.clip?.score ?? -1) - (a.clip?.score ?? -1)).map(c => {
+    const k = c.clip, st = c.off ? '<span class="pill2 off">Off</span>' : c.auto ? '<span class="pill2 off">Hidden automatically</span>'
+      : c.on_tv ? '<span class="pill2 on">On TV</span>' : '<span class="pill2">Not on TV yet</span>';
+    const btn = c.off || c.auto ? `<button class="btn sm" type="button" data-tv="show" data-id="${esc(c.id)}">Show on TV</button>`
+      : `<button class="btn sm ghost" type="button" data-tv="hide" data-id="${esc(c.id)}">Hide from TV</button>`;
+    const why = c.auto ? `Hidden automatically: ${esc(k?.why || 'it did not score well')}` : esc(k?.why || '');
+    return `<tr class="${c.off || c.auto ? 'off' : ''}"><td class="th">${c.thumb ? `<img src="${esc(c.thumb)}" alt="" loading="lazy" data-clipview="${esc(c.id)}" style="cursor:zoom-in">` : ''}</td>
+      <td class="fn" title="${esc(c.file)}"><div class="fnw">${esc(c.file)}<small>${esc([k?.duration ? fmtS(k.duration) : '', all && c.album, c.place, fmtDate(c.date)].filter(Boolean).join(' · '))}</small></div></td>
+      <td class="c-q">${k ? bar(n100(k.score), true) : '<span style="color:var(--ink-3)">Not scored yet</span>'}</td>
+      <td class="c-ae">${k ? bar(k.looks == null ? null : k.looks / 10) : ''}</td>
+      <td class="c-mo">${k ? bar(n100(k.motion)) : ''}</td><td class="c-mo">${k ? bar(n100(k.steady)) : ''}</td>
+      <td class="c-spk">${k ? spark(k, 120, 28) : ''}</td>
+      <td class="lk" title="${esc(k?.shot || '')}">${k?.look ? esc(k.look) : ''}<small>${esc(k?.settings || '')}</small><small>${esc(k?.shot || '')}</small></td>
+      <td class="c-fv"><button class="favb${c.level === 'fav' ? ' on' : ''}" type="button" data-clipfav="${esc(c.id)}" aria-pressed="${c.level === 'fav'}" aria-label="${c.level === 'fav' ? 'Remove from favorites' : 'Favorite: comes up the most'}">${HEART(c.level === 'fav')}</button></td>
+      <td class="c-st"><div class="clipst">${st}${why ? `<small>${why}</small>` : ''}${btn}</div></td></tr>`;
+  }).join('');
+  return `<div class="rk-clips"><h3>Clips (${cs.length})</h3><p class="rk-intro" style="margin-top:0">${scored.length
+    ? `${scored.length} of ${cs.length} clips scored. <b>Score</b> rates the whole clip from how good its frames look, how steady and sharp it is and its exposure. <b>Motion</b> is how much happens, <b>Steady</b> how still the camera is. The line shows how good each moment looks; the green part is the stretch the TV plays. <b>Look</b> says how its color and contrast come out next to the other clips and how it was shot. Tap the heart on the ones you love: favorites come up the most.`
+    : 'Clips are not scored yet. They come up now and then between photos.'}${auto ? ` ${auto} hidden automatically.` : ''}${off ? ` ${off} off.` : ''}</p>
+    ${filt ? rfBar(cs, 'clips') : ''}<div style="overflow-x:auto"><table class="rk"><thead><tr><th class="th">Clip</th><th class="fn">Name</th><th class="c-q">Score</th><th class="c-ae">Looks</th><th class="c-mo">Motion</th><th class="c-mo">Steady</th><th class="c-spk">Over time</th><th>Look</th><th><span class="sr">Favorite</span></th><th>On the TV</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+}
+document.addEventListener('click', async e => {
+  const v = e.target.closest('[data-clipview]');
+  if (v) { const c = rankData?.clips.find(c => c.id === v.dataset.clipview); if (c) viewItem({ ...c, video: true, big: c.big, album: c.album || rankFor }); return; }
+  const fv = e.target.closest('[data-clipfav]');
+  if (fv) {
+    const c = rankData?.clips.find(c => c.id === fv.dataset.clipfav); if (!c) return;
+    const on = c.level !== 'fav';
+    act('/boost', { id: c.id, level: on ? 'fav' : 'normal' }, () => {
+      c.level = on ? 'fav' : 'normal'; fv.classList.toggle('on', on); fv.innerHTML = HEART(on); fv.setAttribute('aria-pressed', on);
+      fv.setAttribute('aria-label', on ? 'Remove from favorites' : 'Favorite: comes up the most');
+      return on ? 'A favorite now. It comes up the most.' : 'Not a favorite any more.';
+    });
+    return;
+  }
+  const b = e.target.closest('[data-tv]'); if (!b) return;
+  e.stopPropagation(); b.disabled = true;
+  const show = b.dataset.tv === 'show';
+  try {
+    const r = await post('/bulk', { action: show ? 'show' : 'hide', ids: [b.dataset.id] });
+    toast(show ? 'Back on the TV in a few seconds.' : 'Off the TV in a few seconds.', false, async () => { await post('/bulk', r.undo).catch(err => toast(err.message, true)); rankData = null; $('view').dataset.rk = ''; render(); });
+  } catch (err) { b.disabled = false; return toast(err.message, true); }
+  rankData = null; $('view').dataset.rk = ''; render();
+});
+function detail(r, d) {
+  if (!r.scored) return `<div class="detc"><div>${r.thumb ? `<img src="${esc(r.thumb)}" alt="">` : ''}</div><dl><dt>Status</dt><dd>Not scored yet. It's being added to the TV.</dd></dl></div>`;
+  const big = r.thumb?.replace('-720.webp', '-1920.webp');
+  const rows = [
+    ['Rank', `#${r.rank} in this folder · #${r.overall.toLocaleString()} of ${d.scored_total.toLocaleString()} overall`],
+    ['Score', `${pc(r.quality)} of 100`],
+    ['Looks', `${r.aesthetic?.toFixed(2)} of 10 (${pc(r.aesthetic_norm)} after scaling)`],
+    ['Sharp', `${pc(r.sharpness)}`], ['Exposure', `${pc(r.exposure)} · brightness ${pc(r.luma)}, clipped highlights ${(r.highlights * 100).toFixed(1)}%, shadows ${(r.shadows * 100).toFixed(1)}%`],
+    ['Clean', `${pc(r.noise)}`],
+    ['Faces', r.faces ? `${r.faces}${r.faces_sharp === true ? ', all in focus' : r.faces_sharp === false ? ', not all in focus' : ''}` : 'None'],
+    ['Why', esc(r.reason || '')],
+    ['Similar shots', r.cluster_size > 1 ? (r.is_rep ? (r.kept ? `Your pick of ${r.cluster_size} similar shots, so this is the one that shows` : `Best of ${r.cluster_size} similar shots, so this is the one that shows`) : `One of ${r.cluster_size} similar shots. ${esc(r.rep_file || 'Another one')} shows instead`) + ' · <a href="#/all/dups" style="color:var(--accent);font-weight:600;text-decoration:none">Compare them</a>' : 'None'],
+    ['On the TV', r.off ? 'Off' : !r.is_rep ? 'Not shown (a similar shot is)' : `${r.layout === 'mat' ? 'On a soft backdrop, or beside other photos' : 'Full screen'} · chance ${r.share}% · How often: ${LEVELS.find(l => l[0] === r.level)?.[1] || 'Normal'}`],
+    ['Size', `${r.w} × ${r.h} (${r.orientation})`],
+    ['Colors', `<span class="sw">${(r.palette || []).map(c => `<i style="background:${esc(c)}"></i>`).join('')}</span>`],
+    ['Taken', esc([fmtDate(r.date), r.camera, r.place].filter(Boolean).join(' · ') || 'No photo info')],
+  ];
+  const tvb = r.off ? `<button class="btn sm" type="button" data-tv="show" data-id="${esc(r.id)}">Show on TV</button>`
+    : `<button class="btn sm ghost" type="button" data-tv="hide" data-id="${esc(r.id)}">Hide from TV</button>`;
+  return `<div class="detc"><div><img src="${esc(big || '')}" alt="" data-big="${esc(r.id)}"><div class="detact">${tvb}</div></div><dl>${rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join('')}</dl></div>`;
+}
+let lastPill = null;
+function placePill() {
+  // the white pill slides from the tab you were on to the one you picked
+  const s = $('view').querySelector('.seg'); if (!s) return;
+  const a = s.querySelector('[aria-current]'), p = s.querySelector('.pill'); if (!a) return;
+  // on a phone the tabs scroll sideways: keep the current one in view
+  if (s.scrollWidth > s.clientWidth) s.scrollLeft = Math.max(0, a.offsetLeft + a.offsetWidth / 2 - s.clientWidth / 2);
+  const to = { left: a.offsetLeft + 'px', width: a.offsetWidth + 'px' };
+  if (p.dataset.placed) { Object.assign(p.style, to); lastPill = to; return; }
+  p.dataset.placed = 1;
+  if (lastPill && lastPill.left !== to.left) {
+    p.style.transition = 'none'; Object.assign(p.style, lastPill); p.offsetWidth;
+    p.style.transition = ''; requestAnimationFrame(() => Object.assign(p.style, to));
+  } else Object.assign(p.style, to);
+  lastPill = to;
+}
+document.addEventListener('click', e => {
+  const fb = e.target.closest('[data-rkf]');
+  if (fb) { const [kind, id] = fb.dataset.rkf.split(':'); RF[kind] = id; if (fb.classList.contains('lnk')) RF.q = ''; saveRF(); return render(); }
+  const sb = e.target.closest('[data-sort]');
+  if (sb) { const k = sb.dataset.sort; rankSort = rankSort.k === k ? { k, dir: -rankSort.dir } : { k, dir: -1 }; return render(); }
+  const img = e.target.closest('[data-big]');
+  if (img) { $('vbody').innerHTML = `<img src="${esc(img.src)}" alt="">`; $('vcap').textContent = ''; return $('viewer').showModal(); }
+  const tr = e.target.closest('tr.row'); if (tr) toggleRow(tr);
+});
+let rkqT;
+document.addEventListener('input', e => {
+  if (e.target.id !== 'rkq') return;
+  clearTimeout(rkqT);
+  rkqT = setTimeout(() => { RF.q = e.target.value; saveRF(); const at = e.target.selectionStart; render(); const q = $('rkq'); if (q) { q.focus(); q.setSelectionRange(at, at); } }, 140);
+});
+document.addEventListener('keydown', e => { const tr = e.target.closest?.('tr.row'); if (tr && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); toggleRow(tr); } });
+function toggleRow(tr) {
+  const r = rankData.photos[+tr.dataset.r], det = tr.nextElementSibling;
+  const wasOpen = rankOpen === r.id;
+  document.querySelectorAll('.rk tr.open').forEach(x => { x.classList.remove('open'); if (x.classList.contains('row')) x.setAttribute('aria-expanded', 'false'); });
+  rankOpen = wasOpen ? null : r.id;
+  if (!wasOpen) {
+    det.querySelector('.deti').innerHTML = detail(r, rankData);
+    requestAnimationFrame(() => { tr.classList.add('open'); det.classList.add('open'); tr.setAttribute('aria-expanded', 'true'); });
+  }
+}
+window.addEventListener('hashchange', () => { if (tab() === 'rank' || (isAll() && /rank|clips/.test(atab()))) rankData = null; });
+
+// ---------- all photos: every photo and clip in one place, pick many and change them at once ----------
+const IC = {
+  grid: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="3.5" y="3.5" width="7.5" height="7.5" rx="1.6"/><rect x="13" y="3.5" width="7.5" height="7.5" rx="1.6"/><rect x="3.5" y="13" width="7.5" height="7.5" rx="1.6"/><rect x="13" y="13" width="7.5" height="7.5" rx="1.6"/></svg>',
+  list: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1.2" fill="currentColor"/><circle cx="4.5" cy="12" r="1.2" fill="currentColor"/><circle cx="4.5" cy="18" r="1.2" fill="currentColor"/></svg>',
+  search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>',
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+  down: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>',
+  hide: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18M10.6 5.1A9.8 9.8 0 0 1 12 5c5 0 9 4.5 10 7-.4 1-1.3 2.4-2.6 3.7M6.6 6.6C4.4 8 2.8 10.2 2 12c1 2.5 5 7 10 7 1.9 0 3.6-.6 5-1.5M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>',
+  show: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12c1-2.5 5-7 10-7s9 4.5 10 7c-1 2.5-5 7-10 7S3 14.5 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
+  often: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 20V14M10 20V9M16 20V12M22 20V5" transform="translate(-1 0)"/></svg>',
+  trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13"/></svg>',
+  x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+};
+const AP = (() => { const d = { mode: 'grid', group: true, sort: 'score', filter: 'all' };
+  try { return { ...d, ...JSON.parse(localStorage.getItem('tvphotos-all') || '{}'), q: '' }; } catch { return { ...d, q: '' }; } })();
+const saveAP = () => { try { localStorage.setItem('tvphotos-all', JSON.stringify({ mode: AP.mode, group: AP.group, sort: AP.sort, filter: AP.filter })); } catch {} };
+let A = null, aSig = '', aT = null, aOrder = [], aGroups = [], aEls = new Map(), anchor = null;
+const sel = new Set(), shut = new Set();
+const akey = x => x.id || `f:${x.album}/${x.file}`;
+const isAll = () => /^#\/all(\/|$)/.test(location.hash);
+const atab = () => { const m = /^#\/all\/(dups|rank|clips)/.exec(location.hash); return m ? m[1] : 'all'; };
+const inner = () => !!route() || isAll();
+const nf = n => n.toLocaleString();
+const plural = (n, one, many) => `${nf(n)} ${n === 1 ? one : many}`;
+const nounFor = xs => xs.every(x => x.video) ? ['clip', 'clips'] : xs.some(x => x.video) ? ['item', 'items'] : ['photo', 'photos'];
+const fmtS = s => s == null ? '' : s < 60 ? `${Math.round(s)} s` : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
+const LV = { less: 'Less often', more: 'More often', most: 'Most often', fav: '♥ Favorite' };
+const FILTERS = [
+  ['all', 'Everything', () => true],
+  ['on', 'On TV', x => x.state === 'on'],
+  ['hidden', 'Hidden', x => x.state === 'off' || x.state === 'auto'],
+  ['less', 'Less often', x => x.level === 'less'],
+  ['more', 'More often', x => x.level === 'more' || x.level === 'most'],
+  ['videos', 'Videos', x => x.video],
+  ['dups', 'Duplicates', x => x.group != null],
+  ['unscored', 'Not yet scored', x => x.video ? !x.clip : x.q == null],
+];
+const SORTS = [['score', 'Best first'], ['new', 'Newest first'], ['old', 'Oldest first'], ['name', 'Name']];
+const when = x => (x.date || '') + 'T' + (x.time || '');
+const byName = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+const CMP = {
+  score: (a, b) => (b.q ?? -1) - (a.q ?? -1) || byName.compare(a.file, b.file),
+  new: (a, b) => (when(b) > when(a) ? 1 : when(b) < when(a) ? -1 : 0) || byName.compare(a.file, b.file),
+  old: (a, b) => (!a.date) - (!b.date) || (when(a) > when(b) ? 1 : when(a) < when(b) ? -1 : 0) || byName.compare(a.file, b.file),
+  name: (a, b) => byName.compare(a.file, b.file),
+};
+const hay = x => x._h || (x._h = `${x.file} ${x.album} ${x.place || ''} ${x.camera || ''} ${x.date || ''} ${fmtDate(x.date)} ${x.why || ''}`.toLowerCase());
+
+async function loadAll() {
+  try {
+    const d = await fetch(API + '/all', { cache: 'no-store' }).then(r => r.json());
+    const sig = d.items.map(x => `${akey(x)}:${x.state}:${x.level}:${x.pick || ''}:${x.kept ? 1 : 0}:${x.thumb ? 1 : 0}:${x.q ?? ''}:${x.clip ? 1 : 0}`).join('|');
+    A = d; A.by = new Map(d.items.map(x => [akey(x), x]));
+    for (const k of [...sel]) if (!A.by.has(k)) sel.delete(k);
+    if (sig === aSig) return false;
+    aSig = sig; return true;
+  } catch { if (!A) A = { error: true, items: [], albums: [], by: new Map() }; return false; }
+}
+function pollAll() {
+  clearTimeout(aT);
+  aT = setTimeout(async () => {
+    if (isAll() && !document.hidden && menu.hidden && await loadAll()) paintAll();
+    if (isAll()) pollAll();
+  }, 20000);
+}
+
+function allSeg(t) {
+  const ndup = A ? new Set(A.items.filter(x => x.group != null).map(x => x.group)).size : null;
+  const tb = (k, href, label) => `<a href="${href}" ${t === k ? 'aria-current="page"' : ''}>${label}</a>`;
+  return `<nav class="seg" aria-label="Show"><span class="pill"></span>${tb('all', '#/all', 'Everything')}${tb('dups', '#/all/dups', `Duplicates${ndup ? ` <span style="color:var(--ink-3);font-weight:500">${ndup}</span>` : ''}`)}${tb('rank', '#/all/rank', 'Photo ranking')}${tb('clips', '#/all/clips', 'Clip ranking')}</nav>`;
+}
+function renderAll() {
+  $('nowbox').hidden = true; $('mixbox').hidden = true;
+  const t = atab();
+  $('crumbs').innerHTML = `<a href="#" aria-label="All folders"><span class="full">TV Photos</span><span class="short">‹</span></a><span class="sep">/</span><span class="here">All photos</span>`;
+  if (t === 'rank' || t === 'clips') { delete $('view').dataset.shell; $('actions').innerHTML = ''; return renderRank({ name: '*' }, allSeg(t), t); }
+  if ($('view').dataset.shell === t && A) return;            // the 4 s refresh: leave the page alone
+  $('actions').innerHTML = `<button class="dots" type="button" id="allmenu" aria-label="More" aria-haspopup="menu">${DOTS}</button>`;
+  $('allmenu').onclick = e => menu.hidden || opener !== e.currentTarget ? allMenu(e.currentTarget) : closeMenu();
+  delete $('view').dataset.rk;
+  const seg = allSeg(t);
+  if (!A) {
+    $('view').innerHTML = seg + '<p class="empty">Loading every photo…</p>'; placePill();
+    loadAll().then(() => { if (isAll()) { delete $('view').dataset.shell; renderAll(); pollAll(); } });
+    return;
+  }
+  $('view').dataset.shell = t;
+  if (t === 'dups') { $('view').innerHTML = seg + '<div id="dbody"></div>'; placePill(); paintDups(); updateBar(); return; }
+  $('view').innerHTML = seg + `<div class="atools" id="atools">
+      <div class="arow top">
+        <label class="search">${IC.search}<input id="aq" type="search" placeholder="Search by name, place, folder or date" value="${esc(AP.q)}" autocomplete="off" aria-label="Search photos"><button class="clr" id="aqx" type="button" aria-label="Clear search" ${AP.q ? '' : 'hidden'}>×</button></label>
+        <span class="iseg" role="group" aria-label="Look"><button type="button" data-mode="grid" aria-pressed="${AP.mode === 'grid'}" aria-label="Grid" title="Grid">${IC.grid}</button><button type="button" data-mode="list" aria-pressed="${AP.mode === 'list'}" aria-label="List" title="List">${IC.list}</button></span>
+        <span class="iseg" role="group" aria-label="Group"><button type="button" data-group="1" aria-pressed="${AP.group}">By folder</button><button type="button" data-group="0" aria-pressed="${!AP.group}">One list</button></span>
+        <select class="sortsel" id="asort" aria-label="Sort">${SORTS.map(([k, l]) => `<option value="${k}" ${AP.sort === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      </div>
+      <div class="chipsrow" id="achips" role="group" aria-label="Show only"></div>
+    </div><div class="acount" id="acount"></div><div id="abody"></div>`;
+  placePill();
+  let qT;
+  $('aq').addEventListener('input', () => { clearTimeout(qT); $('aqx').hidden = !$('aq').value; qT = setTimeout(() => { AP.q = $('aq').value; paintAll(); }, 110); });
+  $('aq').addEventListener('keydown', e => { if (e.key === 'Escape' && $('aq').value) { e.stopPropagation(); $('aq').value = ''; AP.q = ''; $('aqx').hidden = true; paintAll(); } });
+  $('aqx').onclick = () => { $('aq').value = ''; AP.q = ''; $('aqx').hidden = true; paintAll(); $('aq').focus(); };
+  $('asort').onchange = () => { AP.sort = $('asort').value; saveAP(); paintAll(); };
+  $('atools').addEventListener('click', e => {
+    const m = e.target.closest('[data-mode]'), g = e.target.closest('[data-group]'), c = e.target.closest('[data-filter]');
+    if (m) { AP.mode = m.dataset.mode; } else if (g) { AP.group = g.dataset.group === '1'; } else if (c) { AP.filter = c.dataset.filter; } else return;
+    $('atools').querySelectorAll('[data-mode]').forEach(b => b.setAttribute('aria-pressed', b.dataset.mode === AP.mode));
+    $('atools').querySelectorAll('[data-group]').forEach(b => b.setAttribute('aria-pressed', (b.dataset.group === '1') === AP.group));
+    saveAP(); paintAll();
+  });
+  paintAll();
+}
+
+function badges(x) {
+  const b = [];
+  if (x.video) b.push(`<span class="bdg">▶ ${fmtS(x.clip?.duration) || 'Video'}</span>`);
+  if (x.state === 'off') b.push('<span class="bdg off">Hidden</span>');
+  else if (x.state === 'auto') b.push('<span class="bdg off">Hidden automatically</span>');
+  else if (x.state === 'similar') b.push(`<span class="bdg">${x.video ? 'Not on TV yet' : 'Similar shown'}</span>`);
+  else if (x.state === 'season') b.push('<span class="bdg">Waits for its dates</span>');
+  if (x.kept && x.pick === x.id) b.push('<span class="bdg pick">Your pick</span>');
+  if (LV[x.level] && x.state !== 'off') b.push(`<span class="bdg lv">${LV[x.level]}</span>`);
+  return b.join('');
+}
+function statePill(x) {
+  if (x.state === 'off') return '<span class="pill3 off">Hidden</span>';
+  if (x.state === 'auto') return `<span class="pill3 off" title="${esc(x.why || '')}">Hidden automatically</span>`;
+  if (x.state === 'new') return '<span class="pill3">Being added</span>';
+  if (x.state === 'season') return '<span class="pill3">Waits for its dates</span>';
+  if (x.state === 'similar') return `<span class="pill3">${x.video ? 'Not on TV yet' : 'Similar shown'}</span>`;
+  return x.kept && x.pick === x.id ? '<span class="pill3 pick">On TV, your pick</span>' : '<span class="pill3 on">On TV</span>';
+}
+let spkN = 0;
+function spark(c, w = 120, h = 28) {
+  const fr = (c?.frames || []).filter(f => f[1] != null);
+  if (fr.length < 2) return '';
+  const dur = c.duration || fr[fr.length - 1][0] || 1, vs = fr.map(f => f[1]);
+  const lo = Math.min(...vs), hi = Math.max(...vs), rng = hi - lo || 1;
+  const pts = fr.map(([t, v]) => `${(Math.min(1, t / dur) * w).toFixed(1)},${(h - 3 - (v - lo) / rng * (h - 6)).toFixed(1)}`).join(' ');
+  const b = c.best && c.best.length_s ? c.best : null, id = 'spk' + (++spkN);
+  const bx = b ? Math.max(0, Math.min(w, b.start_s / dur * w)) : 0, bw = b ? Math.max(2, Math.min(w - bx, b.length_s / dur * w)) : 0;
+  const lab = `How good each moment looks${b ? `. The TV plays ${fmtS(b.start_s)} to ${fmtS(b.start_s + b.length_s)}` : ''}`;
+  return `<svg class="spk" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="${lab}"><title>${lab}</title>
+    ${b ? `<clipPath id="${id}"><rect x="${bx.toFixed(1)}" y="-2" width="${bw.toFixed(1)}" height="${h + 4}"/></clipPath><rect class="hl" x="${bx.toFixed(1)}" y="0" width="${bw.toFixed(1)}" height="${h}" rx="3"/>` : ''}
+    <polyline class="ln" points="${pts}"/>${b ? `<polyline class="lb" points="${pts}" clip-path="url(#${id})"/>` : ''}</svg>`;
+}
+const n100 = v => v == null ? null : v > 1.001 ? v / 100 : v;       // clip scores are 0 to 100, photo scores 0 to 1
+function clipMini(c) {
+  return `<span class="cmeta">${spark(c)}<small>Motion ${c.motion == null ? '–' : Math.round(n100(c.motion) * 100)} · Steady ${c.steady == null ? '–' : Math.round(n100(c.steady) * 100)}</small></span>`;
+}
+function tileHTML(x) {
+  const k = esc(akey(x)), s = sel.has(akey(x)), sc = x.q != null ? Math.round(x.q * 100) : null;
+  const img = x.thumb ? `<img src="${esc(x.thumb)}" alt="" loading="lazy" decoding="async">` : '<span class="wait">Being added</span>';
+  if (AP.mode === 'list') {
+    const sub = [AP.group ? '' : x.album, x.place, fmtDate(x.date)].filter(Boolean).join(' · ');
+    return `<div class="it ${x.state}${s ? ' sel' : ''}" data-k="${k}">
+      <button class="cb" type="button" data-cb aria-label="Select ${esc(x.file)}" aria-pressed="${s}"><i>${IC.check}</i></button>
+      <button class="im" type="button" data-open aria-label="View ${esc(x.file)}">${img}${x.video ? '<span class="vb">▶</span>' : ''}</button>
+      <div class="nmw"><div class="nm" title="${esc(x.file)}">${esc(x.file)}</div><div class="sub">${x.state !== 'on' || LV[x.level] ? `<span class="stm">${statePill(x)}${LV[x.level] ? ` <span class="pill3">${LV[x.level]}</span>` : ''}</span>` : ''}${esc(sub)}</div></div>
+      <div class="c-sc">${x.q != null ? bar(x.q, true) : '<span style="color:var(--ink-3);font-size:13px">Not scored</span>'}</div>
+      <div class="c-st">${statePill(x)}</div><div class="c-lv">${LV[x.level] || 'Normal'}</div>
+      <div class="c-why">${x.clip ? clipMini(x.clip) : esc(x.why || '')}</div></div>`;
+  }
+  return `<div class="it ${x.state}${s ? ' sel' : ''}" data-k="${k}">
+    <button class="cb" type="button" data-cb aria-label="Select ${esc(x.file)}" aria-pressed="${s}"><i>${IC.check}</i></button>
+    <button class="im" type="button" data-open aria-label="${esc(x.file)}">${img}${sc != null ? `<span class="sc">${sc}</span>` : ''}<span class="bl">${badges(x)}</span></button>
+    <div class="cap" title="${esc(x.file)}">${esc(x.file)}</div></div>`;
+}
+function patchItem(x) {
+  const el = aEls.get(akey(x)); if (!el) return;
+  el.className = `it ${x.state}${sel.has(akey(x)) ? ' sel' : ''}`;
+  const bl = el.querySelector('.bl'); if (bl) bl.innerHTML = badges(x);
+  const st = el.querySelector('.c-st'); if (st) st.innerHTML = statePill(x);
+  const lv = el.querySelector('.c-lv'); if (lv) lv.textContent = LV[x.level] || 'Normal';
+}
+
+function visible() {
+  const words = AP.q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const base = words.length ? A.items.filter(x => words.every(w => hay(x).includes(w))) : A.items;
+  return { base, list: base.filter((FILTERS.find(f => f[0] === AP.filter) || FILTERS[0])[2]).sort(CMP[AP.sort] || CMP.score) };
+}
+function paintAll() {
+  if (!$('abody')) return;
+  const { base, list } = visible();
+  $('achips').innerHTML = FILTERS.map(([k, l, f]) => { const n = k === 'all' ? base.length : base.filter(f).length;
+    return `<button class="chip2 ${n || k === AP.filter ? '' : 'zero'}" type="button" data-filter="${k}" aria-pressed="${AP.filter === k}">${l}<span>${nf(n)}</span></button>`; }).join('');
+  aGroups = AP.group ? A.albums.map(a => ({ name: a, items: list.filter(x => x.album === a) })).filter(g => g.items.length) : [{ name: null, items: list }];
+  const head = AP.mode === 'list' ? `<div class="lhead"><span></span><span></span><span>Name</span><span>Score</span><span class="c-st">On the TV</span><span class="c-lv">How often</span><span class="c-why">Why</span></div>` : '';
+  const html = aGroups.map(g => {
+    const body = `<div class="agb ag-${AP.mode}">${g.items.map(tileHTML).join('')}</div>`;
+    if (g.name == null) return head + body;
+    const off = g.items.filter(x => x.state === 'off' || x.state === 'auto').length;
+    return `<section class="ag ${shut.has(g.name) ? 'shut' : ''}" data-album="${esc(g.name)}">
+      <div class="agh"><button class="agc" type="button" data-gcol aria-expanded="${!shut.has(g.name)}">${IC.down}<b>${esc(g.name)}</b><span>${plural(g.items.length, 'item', 'items')}${off ? ` · ${nf(off)} hidden` : ''}</span></button>
+      <button class="gsel" type="button" data-gsel role="checkbox" aria-checked="false"><span class="box">${IC.check}</span>Select all</button></div>
+      ${AP.mode === 'list' && g === aGroups[0] ? head : ''}${body}</section>`;
+  }).join('');
+  $('abody').innerHTML = list.length ? html : `<p class="empty">${A.error ? 'Cannot reach the server on port 8153.' : AP.q ? `Nothing matches “${esc(AP.q)}”.` : 'Nothing here.'}</p>`;
+  aEls = new Map([...$('abody').querySelectorAll('.it')].map(el => [el.dataset.k, el]));
+  aOrderCalc();
+  const total = A.items.length;
+  $('acount').innerHTML = `<span>${list.length === total ? plural(total, 'item', 'items') : `${nf(list.length)} of ${plural(total, 'item', 'items')}`}${AP.group && aGroups.length > 1 ? ` in ${aGroups.length} folders` : ''}</span>
+    ${AP.group && aGroups.length > 1 ? `<button type="button" id="foldall">${aGroups.every(g => shut.has(g.name)) ? 'Open all folders' : 'Fold all folders'}</button>` : ''}`;
+  $('foldall')?.addEventListener('click', () => { const all = aGroups.every(g => shut.has(g.name)); aGroups.forEach(g => all ? shut.delete(g.name) : shut.add(g.name)); paintAll(); });
+  updateBar();
+}
+function aOrderCalc() { aOrder = aGroups.filter(g => g.name == null || !shut.has(g.name)).flatMap(g => g.items.map(akey)); }
+
+// ---------- selection ----------
+function setSel(k, on) {
+  if (on) sel.add(k); else sel.delete(k);
+  const el = aEls.get(k);
+  if (el) { el.classList.toggle('sel', on); el.firstElementChild.setAttribute('aria-pressed', on); }
+}
+function pick(k, range) {
+  if (range && anchor && anchor !== k && aOrder.includes(anchor) && aOrder.includes(k)) {
+    const a = aOrder.indexOf(anchor), b = aOrder.indexOf(k), on = sel.has(anchor);
+    for (let i = Math.min(a, b); i <= Math.max(a, b); i++) setSel(aOrder[i], on);
+  } else setSel(k, !sel.has(k));
+  anchor = k; updateBar(true);
+}
+function clearSel() { [...sel].forEach(k => setSel(k, false)); anchor = null; updateBar(); }
+function selectKeys(keys, on = true) { keys.forEach(k => setSel(k, on)); updateBar(true); }
+let selbar = null;
+function updateBar(bump) {
+  if (!selbar) {
+    selbar = document.createElement('div'); selbar.className = 'selbar'; selbar.id = 'selbar'; selbar.setAttribute('role', 'toolbar'); selbar.setAttribute('aria-label', 'Selected photos');
+    selbar.innerHTML = `<div class="lead"><button class="x" type="button" data-sb="clear" aria-label="Clear selection" title="Clear selection (Esc)">${IC.x}</button><span class="n" id="seln" aria-live="polite"></span><button class="all" type="button" data-sb="all" id="selall"></button></div><span class="sep"></span>
+      <div class="acts"><button class="btn" type="button" data-sb="hide">${IC.hide}<span><span class="lg">Hide from TV</span><span class="sh">Hide</span></span></button>
+      <button class="btn" type="button" data-sb="show">${IC.show}<span><span class="lg">Show on TV</span><span class="sh">Show</span></span></button>
+      <button class="btn" type="button" data-sb="often" data-mb aria-haspopup="menu">${IC.often}<span>How often</span></button>
+      <button class="btn danger" type="button" data-sb="remove" data-mb>${IC.trash}<span>Remove</span></button></div>`;
+    document.body.appendChild(selbar);
+    selbar.addEventListener('click', e => {
+      const b = e.target.closest('[data-sb]'); if (!b) return;
+      const k = b.dataset.sb;
+      if (k === 'clear') return clearSel();
+      if (k === 'all') return selectKeys(selScope());
+      if (k === 'hide') return bulk('hide');
+      if (k === 'show') return bulk('show');
+      if (k === 'often') return menu.hidden || opener !== b ? oftenMenu(b) : closeMenu();
+      if (k === 'remove') return menu.hidden || opener !== b ? removeMenu(b) : closeMenu();
+    });
+  }
+  const n = sel.size, on = n > 0 && isAll() && atab() === 'all';
+  document.body.classList.toggle('selecting', on);
+  selbar.classList.toggle('show', on);
+  if (!on) return;
+  $('seln').textContent = `${nf(n)} selected`;
+  if (bump) { $('seln').classList.remove('bump'); void $('seln').offsetWidth; $('seln').classList.add('bump'); }
+  const scope = selScope(), left = scope.filter(k => !sel.has(k)).length;
+  $('selall').hidden = !left;
+  $('selall').textContent = `Select all ${nf(scope.length)}`;
+  for (const sec of $('abody')?.querySelectorAll('.ag') || []) {
+    const g = aGroups.find(g => g.name === sec.dataset.album); if (!g) continue;
+    const c = g.items.filter(x => sel.has(akey(x))).length;
+    sec.querySelector('[data-gsel]').setAttribute('aria-checked', c === 0 ? 'false' : c === g.items.length ? 'true' : 'mixed');
+  }
+}
+const selScope = () => aGroups.flatMap(g => g.items.map(akey));     // everything that matches the search and filter
+document.addEventListener('click', e => {
+  const body = e.target.closest('#abody'); if (!body) return;
+  const gc = e.target.closest('[data-gcol]');
+  if (gc) {
+    const sec = gc.closest('.ag'), name = sec.dataset.album, close = !sec.classList.contains('shut');
+    sec.classList.toggle('shut', close); gc.setAttribute('aria-expanded', !close);
+    if (close) shut.add(name); else { shut.delete(name); sec.classList.add('opening'); setTimeout(() => sec.classList.remove('opening'), 320); }
+    aOrderCalc(); return;
+  }
+  const gs = e.target.closest('[data-gsel]');
+  if (gs) {
+    const g = aGroups.find(g => g.name === gs.closest('.ag').dataset.album), keys = g.items.map(akey);
+    selectKeys(keys, !keys.every(k => sel.has(k))); return;
+  }
+  const it = e.target.closest('.it'); if (!it) return;
+  const k = it.dataset.k, open = e.target.closest('[data-open]');
+  if (e.target.closest('[data-cb]') || e.shiftKey || e.metaKey || e.ctrlKey || sel.size || (AP.mode === 'list' && !open)) return pick(k, e.shiftKey);
+  if (open) viewItem(A.by.get(k));
+});
+document.addEventListener('mousedown', e => { if (e.shiftKey && e.target.closest('#abody .it')) e.preventDefault(); });   // no text highlight on shift-click
+window.addEventListener('keydown', e => {
+  if (!isAll() || !menu.hidden || $('viewer').open) return;
+  if (e.key === 'Escape' && sel.size) { e.preventDefault(); clearSel(); }
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a' && atab() === 'all' && !e.target.closest('input,textarea,select')) { e.preventDefault(); selectKeys(selScope()); }
+}, true);
+
+// ---------- bulk changes: one request, then a toast to undo it ----------
+function locally(x, action, level) {
+  if (action === 'hide' && x.state !== 'new') x.state = 'off';
+  if (action === 'show' && (x.state === 'off' || x.state === 'auto')) x.state = x.video ? 'on' : x.group != null && x.pick !== x.id ? 'similar' : 'on';
+  if (action === 'level') x.level = level;
+}
+async function bulk(action, extra = {}) {
+  closeMenu();
+  const xs = [...sel].map(k => A.by.get(k)).filter(Boolean);
+  const ids = xs.filter(x => x.id).map(x => x.id), [one, many] = nounFor(xs), n = xs.length;
+  if (!xs.length) return;
+  if (action !== 'remove' && !ids.length) return toast('Those are still being added. Try again in a few minutes.', true);
+  const before = xs.map(x => [x, x.state, x.level]);
+  const body = action === 'remove' ? { action, ids, files: xs.filter(x => !x.id).map(x => ({ album: x.album, file: x.file })) } : { action, ids, ...extra };
+  if (action === 'remove') xs.forEach(x => aEls.get(akey(x))?.classList.add('going'));
+  else xs.forEach(x => { locally(x, action, extra.level); patchItem(x); });
+  let r;
+  try { r = await post('/bulk', body); }
+  catch (e) { before.forEach(([x, s, l]) => { x.state = s; x.level = l; patchItem(x); aEls.get(akey(x))?.classList.remove('going'); }); return toast(e.message, true); }
+  clearSel();
+  const what = plural(n, one, many);
+  const msg = action === 'hide' ? `${what} hidden from the TV.` : action === 'show' ? `${what} back on the TV.` : action === 'remove' ? `${what} moved to library-trash on the server.`
+    : `${what} set to ${(LV[extra.level] || 'Normal').toLowerCase()}.`;
+  if (action === 'remove') { A.items = A.items.filter(x => !xs.includes(x)); xs.forEach(x => A.by.delete(akey(x))); setTimeout(paintAll, 230); }
+  toast(msg + (action === 'remove' ? '' : ' The TV updates in a few seconds.'), false, async () => {
+    try { await post('/bulk', r.undo); } catch (e) { return toast(e.message, true); }
+    if (action === 'remove') { toast('Put back. It shows up again in a minute.'); setTimeout(async () => { await loadAll(); paintAll(); }, 1500); return; }
+    before.forEach(([x, s, l]) => { x.state = s; x.level = l; patchItem(x); });
+    toast('Undone.');
+    if (await loadAll()) paintAll();
+  });
+  setTimeout(async () => { if (isAll() && await loadAll()) paintCurrent(); }, 1800);
+}
+const paintCurrent = () => atab() === 'dups' ? paintDups() : paintAll();
+function oftenMenu(btn) {
+  const xs = [...sel].map(k => A.by.get(k)).filter(Boolean), lv = new Set(xs.map(x => x.level));
+  openMenu(btn, `<div class="h">How often ${xs.length === 1 ? 'it comes' : `these ${nf(xs.length)} come`} up</div>${LEVELS.map(([k, l]) => check('lv-' + k, l, lv.size === 1 && lv.has(k))).join('')}`,
+    m => onKey(m, Object.fromEntries(LEVELS.map(([k]) => ['lv-' + k, () => bulk('level', { level: k })]))));
+}
+function removeMenu(btn) {
+  const xs = [...sel].map(k => A.by.get(k)).filter(Boolean), [one, many] = nounFor(xs);
+  confirmMenu(btn, `Remove ${plural(xs.length, one, many)}? They leave the TV and move to library-trash on the server. You can undo it right after.`, `Remove ${nf(xs.length)}`, () => bulk('remove'));
+}
+function allMenu(btn) {
+  const t = atab();
+  openMenu(btn, `<div class="h">All photos</div>
+    ${t === 'all' ? item('selall', `Select everything shown (${nf(selScope().length)})`) + item('clear', 'Clear selection', sel.size ? '' : 'dis') : ''}
+    ${t === 'all' ? item('dups', 'Duplicates') : item('every', 'Everything')}
+    <hr>${item('reload', 'Reload')}`, m => onKey(m, {
+    selall: () => { closeMenu(); selectKeys(selScope()); }, clear: () => { closeMenu(); clearSel(); },
+    dups: () => { closeMenu(); location.hash = '#/all/dups'; }, every: () => { closeMenu(); location.hash = '#/all'; },
+    reload: async () => { closeMenu(); aSig = ''; await loadAll(); paintCurrent(); toast('Up to date.'); },
+  }));
+}
+function viewItem(x) {
+  if (!x || !x.big) return;
+  const t = x.clip?.best?.start_s ? `#t=${x.clip.best.start_s}` : '';
+  $('vbody').innerHTML = x.video ? `<video src="${esc(x.big + t)}" controls playsinline autoplay muted></video>` : `<img src="${esc(x.big)}" alt="">`;
+  $('vcap').textContent = [x.file, x.album, x.place, fmtDate(x.date)].filter(Boolean).join(' · ');
+  $('viewer').showModal();
+}
+
+// ---------- duplicates: similar shots side by side, pick the one the TV shows ----------
+function dupGroups() {
+  const m = new Map();
+  for (const x of A.items) if (x.group != null) { if (!m.has(x.group)) m.set(x.group, []); m.get(x.group).push(x); }
+  return [...m.values()].filter(g => g.length > 1).map(g => g.sort((a, b) => (b.q ?? 0) - (a.q ?? 0)))
+    .sort((a, b) => b.length - a.length || byName.compare(a[0].album, b[0].album) || when(a[0]).localeCompare(when(b[0])));
+}
+function dupTag(x) {
+  return x.pick === x.id ? (x.kept ? 'On the TV · your pick' : 'On the TV · best score') : x.state === 'off' ? 'Hidden' : x.also ? 'On the TV · shown too' : 'Not shown';
+}
+function dupAct(x) {
+  if (x.pick === x.id) return `<span class="shown">${IC.check}This one shows</span>`;
+  if (x.also && x.state !== 'off') return `<span class="shown">${IC.check}Shows too</span><button class="btn sm" type="button" data-unalso="${esc(x.id)}" style="flex:none;margin-left:auto">Stop</button>`;
+  return `<button class="btn" type="button" data-keep="${esc(x.id)}" title="Show this one instead of the others">Use this one</button><button class="btn" type="button" data-also="${esc(x.id)}" title="Show this one too, as its own photo" style="flex:none">Show too</button>`;
+}
+function dupCard(x) {
+  const m = (l, v) => `<span>${l}</span>${bar(v)}`;
+  return `<figure class="dc ${x.pick === x.id ? 'pick' : ''} ${x.also && x.state !== 'off' ? 'also' : ''} ${x.state === 'off' ? 'off' : ''}" data-id="${esc(x.id)}">
+    <button class="im" type="button" data-dopen="${esc(x.id)}" aria-label="View ${esc(x.file)}"><img src="${esc(x.thumb || '')}" alt="" loading="lazy" decoding="async"><span class="tag">${dupTag(x)}</span></button>
+    <div class="nm" title="${esc(x.album + ' / ' + x.file)}">${esc(x.file)}</div>
+    <div class="met"><span>Score</span>${bar(x.q, true)}${m('Looks', x.looks_n)}${m('Sharp', x.sharp)}${m('Exposure', x.exp)}${m('Clean', x.clean)}</div>
+    <div class="why">${esc((x.why || '').replace(/,?\s*(best of \d+ near-duplicates|near-duplicate of [^,]+(, hidden)?)/g, '') || 'No notes')}${x.faces ? ` · ${plural(x.faces, 'face', 'faces')}` : ''}${x.w ? ` · ${x.w} × ${x.h}` : ''}</div>
+    <div class="act">${dupAct(x)}</div></figure>`;
+}
+function dupHead(g) {
+  const albums = [...new Set(g.map(x => x.album))], dates = [...new Set(g.map(x => fmtDate(x.date)).filter(Boolean))];
+  const others = g.filter(x => x.pick !== x.id && x.state !== 'off').length, too = g.filter(x => x.also && x.state !== 'off').length;
+  return `<div><b>${g.length} similar shots</b><span>${esc(albums.join(', '))}${dates.length ? ' · ' + esc(dates.slice(0, 2).join(', ')) + (dates.length > 2 ? '…' : '') : ''}${too ? ` · ${nf(too)} shown too` : ''}</span></div>
+    <button class="btn sm" type="button" data-hideothers ${others ? '' : 'disabled'}>${others ? `Hide the other ${others === 1 ? 'one' : nf(others)}` : 'Others hidden'}</button>`;
+}
+function paintDups() {
+  const box = $('dbody'); if (!box) return;
+  const gs = dupGroups(), photos = gs.reduce((t, g) => t + g.length, 0), mine = gs.filter(g => g.some(x => x.kept && x.pick === x.id)).length;
+  box.innerHTML = gs.length ? `<p class="dintro">${plural(gs.length, 'group', 'groups')} of similar shots, ${nf(photos)} photos in all. The TV shows one photo from each group: the one with the best score, unless you pick another with <b>Use this one</b>. The rest stay in your folders and just don't come up. If a photo isn't really a copy, <b>Show too</b> puts it on the TV as its own photo. <b>Hide the others</b> takes the rest off the TV for good.${mine ? ` You picked ${nf(mine)} so far.` : ''}</p>
+    ${gs.map(g => `<section class="dg" data-g="${g[0].group}"><div class="dgh">${dupHead(g)}</div><div class="dgr">${g.map(dupCard).join('')}</div></section>`).join('')}`
+    : '<p class="empty">No similar shots right now. Each photo on the TV is one of a kind.</p>';
+}
+function repaintGroup(gid) {
+  const sec = $('dbody')?.querySelector(`.dg[data-g="${gid}"]`); if (!sec) return;
+  const g = dupGroups().find(g => String(g[0].group) === String(gid)); if (!g) return;
+  sec.querySelector('.dgh').innerHTML = dupHead(g);
+  for (const x of g) {
+    const fig = sec.querySelector(`.dc[data-id="${CSS.escape(x.id)}"]`); if (!fig) continue;
+    const was = fig.className;
+    fig.classList.toggle('pick', x.pick === x.id); fig.classList.toggle('off', x.state === 'off'); fig.classList.toggle('also', !!x.also && x.state !== 'off');
+    fig.querySelector('.tag').textContent = dupTag(x);
+    if (was !== fig.className || fig.dataset.act !== String(x.pick === x.id) + x.state + !!x.also) { fig.querySelector('.act').innerHTML = dupAct(x); fig.dataset.act = String(x.pick === x.id) + x.state + !!x.also; }
+  }
+}
+document.addEventListener('click', async e => {
+  if (!e.target.closest('#dbody')) return;
+  const o = e.target.closest('[data-dopen]'); if (o) return viewItem(A.items.find(x => x.id === o.dataset.dopen));
+  const kb = e.target.closest('[data-keep]');
+  if (kb) {
+    const x = A.items.find(i => i.id === kb.dataset.keep); if (!x) return;
+    const g = A.items.filter(i => i.group === x.group), before = g.map(i => [i, i.pick, i.kept, i.state]);
+    g.forEach(i => { i.pick = x.id; i.kept = i === x; if (i.state === 'on' || i.state === 'similar') i.state = i === x ? 'on' : 'similar'; });
+    if (x.state === 'off') x.state = 'on';
+    const wasAlso = x.also; x.also = false;
+    repaintGroup(x.group);
+    try {
+      const r = await post('/keep', { id: x.id });
+      toast(`${x.file} shows on the TV now.`, false, async () => {
+        try { await post('/bulk', r.undo); } catch (err) { return toast(err.message, true); }
+        before.forEach(([i, p, k, s]) => { i.pick = p; i.kept = k; i.state = s; }); x.also = wasAlso; repaintGroup(x.group); toast('Undone.');
+        setTimeout(async () => { if (await loadAll()) repaintGroup(x.group); }, 1500);
+      });
+    } catch (err) { before.forEach(([i, p, k, s]) => { i.pick = p; i.kept = k; i.state = s; }); repaintGroup(x.group); toast(err.message, true); }
+    return;
+  }
+  const al = e.target.closest('[data-also],[data-unalso]');
+  if (al) {
+    const on = al.hasAttribute('data-also'), x = A.items.find(i => i.id === (al.dataset.also || al.dataset.unalso)); if (!x) return;
+    const before = [x.also, x.state];
+    x.also = on; if (on) x.state = 'on'; else if (x.state === 'on') x.state = 'similar';
+    repaintGroup(x.group);
+    try {
+      const r = await post('/bulk', { action: on ? 'also' : 'unalso', ids: [x.id] });
+      toast(on ? `${x.file} shows on the TV too, as its own photo.` : `${x.file} stops showing.`, false, async () => {
+        try { await post('/bulk', r.undo); } catch (err) { return toast(err.message, true); }
+        [x.also, x.state] = before; repaintGroup(x.group); toast('Undone.');
+      });
+    } catch (err) { [x.also, x.state] = before; repaintGroup(x.group); toast(err.message, true); }
+    return;
+  }
+  const ho = e.target.closest('[data-hideothers]');
+  if (ho) {
+    const gid = ho.closest('.dg').dataset.g, g = A.items.filter(i => String(i.group) === gid);
+    const others = g.filter(i => i.pick !== i.id && i.state !== 'off');
+    if (!others.length) return;
+    const before = others.map(i => [i, i.state]);
+    others.forEach(i => { i.state = 'off'; }); repaintGroup(gid);
+    try {
+      const r = await post('/bulk', { action: 'hide', ids: others.map(i => i.id) });
+      toast(`${plural(others.length, 'photo', 'photos')} hidden from the TV.`, false, async () => {
+        try { await post('/bulk', r.undo); } catch (err) { return toast(err.message, true); }
+        before.forEach(([i, s]) => { i.state = s; }); repaintGroup(gid); toast('Undone.');
+      });
+    } catch (err) { before.forEach(([i, s]) => { i.state = s; }); repaintGroup(gid); toast(err.message, true); }
+  }
+});
+window.addEventListener('hashchange', () => {
+  if (isAll()) { pollAll(); if (A) loadAll().then(ch => { if (ch && isAll()) paintCurrent(); }); }
+  else { clearTimeout(aT); }
+  updateBar();
+});
+window.addEventListener('resize', () => document.documentElement.style.setProperty('--hh', document.querySelector('header').offsetHeight + 'px'));
+document.documentElement.style.setProperty('--hh', document.querySelector('header').offsetHeight + 'px');
+
+// ---------- viewer ----------
+function view(f, i) {
+  const x = f.files[i];
+  $('vbody').innerHTML = x.video ? `<video src="${esc(x.big)}" controls playsinline autoplay muted></video>` : `<img src="${esc(x.big)}" alt="">`;
+  $('vcap').textContent = [x.file, x.place, x.date].filter(Boolean).join(' · ');
+  $('viewer').showModal();
+}
+$('vx').onclick = () => $('viewer').close();
+$('viewer').addEventListener('close', () => { $('vbody').innerHTML = ''; });
+
+// ---------- upload ----------
+$('pick').addEventListener('change', () => { upload([...$('pick').files]); $('pick').value = ''; });
+let dragN = 0;
+addEventListener('dragenter', e => { if (!route() || !e.dataTransfer?.types.includes('Files')) return; dragN++; $('drop').hidden = false; $('drop').textContent = `Drop to add to ${route()}`; });
+addEventListener('dragleave', () => { if (--dragN <= 0) { dragN = 0; $('drop').hidden = true; } });
+addEventListener('dragover', e => e.preventDefault());
+addEventListener('drop', e => { e.preventDefault(); dragN = 0; $('drop').hidden = true; if (route()) upload([...e.dataTransfer.files]); });
+
+function send(file, album, onProgress) {
+  return new Promise((ok, bad) => {
+    const x = new XMLHttpRequest();
+    x.open('POST', `${API}/upload?album=${encodeURIComponent(album)}&name=${encodeURIComponent(file.name)}`);
+    x.setRequestHeader('Content-Type', 'application/octet-stream');
+    x.upload.onprogress = e => onProgress(e.loaded);
+    x.onload = () => { try { const j = JSON.parse(x.responseText); j.ok ? ok(j) : bad(new Error(j.error)); } catch { bad(new Error('bad answer from the server')); } };
+    x.onerror = () => bad(new Error('the server did not answer'));
+    x.send(file);
+  });
+}
+async function upload(files) {
+  const album = route();
+  if (!album) return;
+  if (uploading) return toast('Still uploading the last batch.', true);
+  const good = files.filter(f => OK.test(f.name)), skipped = files.length - good.length;
+  if (!good.length) return toast('Only photos and videos: JPEG, HEIC, PNG, MP4 or MOV.', true);
+  uploading = true; $('progress').hidden = false;
+  const bar = $('progress').firstElementChild, total = good.reduce((t, f) => t + f.size, 0) || 1;
+  let done = 0, failed = 0;
+  for (const [i, f] of good.entries()) {
+    $('upmsg').textContent = `Uploading ${i + 1} of ${good.length}: ${f.name}`;
+    try { await send(f, album, n => { bar.style.width = `${(done + n) / total * 100}%`; }); }
+    catch (e) { failed++; toast(`${f.name}: ${e.message}`, true); }
+    done += f.size;
+  }
+  uploading = false; $('progress').hidden = true; bar.style.width = '0'; renderProg();
+  const n = good.length - failed;
+  $('upmsg').textContent = `${n} added${failed ? `, ${failed} failed` : ''}${skipped ? `, ${skipped} skipped (not a photo or video)` : ''}. They show up on the TV in about 5 minutes.`;
+  setTimeout(() => { $('upmsg').textContent = ''; }, 15000);
+  refresh();
+}
+
+// ---------- toast ----------
+let toastT;
+function toast(msg, bad = false, undo = null) {
+  const t = $('toast');
+  t.innerHTML = `<span>${esc(msg)}</span>${undo ? '<button class="u" type="button">Undo</button>' : ''}`;
+  t.classList.toggle('bad', bad); t.classList.toggle('act', !!undo); t.classList.add('show');
+  if (undo) t.querySelector('.u').onclick = () => { t.classList.remove('show', 'act'); clearTimeout(toastT); undo(); };
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show', 'act'), undo ? 7000 : bad ? 5000 : 2500);
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { refresh(); pollNow(); pollProg(); } });
+refresh().then(() => { pollNow(); pollProg(); });
+</script>
+</body>
+</html>

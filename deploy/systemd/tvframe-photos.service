@@ -1,0 +1,12 @@
+[Unit]
+Description=TV Frame photo server (8151)
+After=network-online.target
+[Service]
+WorkingDirectory=%h/tvframe/server
+ExecStart=/usr/bin/python3 serve.py --port 8151
+Restart=always
+RestartSec=3
+StandardOutput=append:%h/tvframe/server/serve.log
+StandardError=append:%h/tvframe/server/serve.log
+[Install]
+WantedBy=default.target

@@ -1,0 +1,10 @@
+# The photo manager and media files on :8150 (Caddy, read-only). docker compose -f deploy/site.compose.yml up -d
+services:
+  tvframe-site:
+    image: caddy:2-alpine
+    container_name: tvframe-site
+    restart: unless-stopped
+    ports: ["8150:8150"]
+    volumes:
+      - ../site:/srv:ro
+      - ../caddy/Caddyfile:/etc/caddy/Caddyfile:ro

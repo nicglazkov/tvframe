@@ -1,0 +1,12 @@
+[Unit]
+Description=TV Frame photos API for the photo manager (8153)
+After=network-online.target
+[Service]
+WorkingDirectory=%h/tvframe/server
+ExecStart=/usr/bin/python3 %h/tvframe/server/photos_api.py
+Restart=always
+RestartSec=3
+StandardOutput=append:%h/tvframe/server/tune_api.log
+StandardError=append:%h/tvframe/server/tune_api.log
+[Install]
+WantedBy=default.target

@@ -1,0 +1,11 @@
+[Unit]
+Description=TV Frame bridge: Home Assistant mode helper and live data for the TV (8154)
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 %h/tvframe/server/bridge.py --port 8154
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

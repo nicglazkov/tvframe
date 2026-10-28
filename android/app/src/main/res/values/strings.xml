@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TV Frame</string>
+    <string name="dream_name">TV Frame slideshow</string>
+    <string name="home_key_name">TV Frame home button</string>
+    <string name="home_key_description">Makes the Home button open the TV Frame home screen. Long press still opens the settings panel. It only listens for the Home button and which app is in front.</string>
+</resources>
