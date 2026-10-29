@@ -39,7 +39,7 @@ jobs:
         run: |
           tools/make-key.sh                         # a throwaway key: CI builds are never installed
           ./gradlew -q --no-daemon assembleRelease
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         with:
           name: tvframe-apk
           path: android/app/build/outputs/apk/release/app-release.apk
