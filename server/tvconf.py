@@ -57,6 +57,17 @@ HA_URL = get("HA_URL").rstrip("/")
 HA_TOKEN_FILE = path("HA_TOKEN_FILE", "~/.config/tvframe/ha_token")
 # Glance weather, air quality and sun times (optional)
 LIVE_LAT, LIVE_LON, LIVE_PLACE = get("LIVE_LAT"), get("LIVE_LON"), get("LIVE_PLACE")
+
+
+def on(key):
+    return get(key).lower() in ("on", "yes", "true", "1")
+
+
+# The online extras. Each is off unless its line says on; while off, TV Frame never contacts that service.
+WEATHER = on("TVFRAME_WEATHER")       # Open-Meteo: weather and air quality
+HEADLINES = on("TVFRAME_HEADLINES")   # NPR top stories RSS
+PLACES = on("TVFRAME_PLACES")         # OpenStreetMap Nominatim and Overpass: place names for photo locations
+MAPS = on("TVFRAME_MAPS")             # Esri World Imagery: satellite maps in the details panel
 # Inside the TV Frame image (compose.yaml) every tool is at hand. Run straight on a server instead, the photo
 # scorer runs in its own container, on the GPU through these docker run flags.
 IN_DOCKER = os.environ.get("TVFRAME_IN_DOCKER") == "1"

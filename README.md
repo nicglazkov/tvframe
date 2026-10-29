@@ -19,15 +19,20 @@
 
 ---
 
+> [!WARNING]
+> **A personal project, shared as is.** There is no support and no promise of updates or fixes. Issues and pull requests are not monitored.
+> TV Frame changes your TV's settings, installs software on your computer and runs with your permissions. Use it at your own risk: you are responsible for your devices, your photos and backups, and for following the terms of any online service you turn on.
+> Not affiliated with or endorsed by Google, or any other company or app named here. See the [license](LICENSE) for the full terms.
+
 ## What it does
 
 - **Real 4K.** Google TV draws its interface at 1080p. TV Frame plays each photo as a one-frame video instead, so the picture is a full 3840 x 2160 with crisp text on top.
 - **Glance.** When the TV sits idle it fills with your photos, with the clock, today's weather, your home and one rotating tile: golden hour, air quality, a headline, or a photo from this week years ago.
 - **Clips that never get cut off.** Short videos mix in, start on their best moment, loop seamlessly two or three times and always finish on their last frame.
-- **Details on demand.** Press OK on the remote for where and when, the camera and lens, the exposure, and a satellite map of the spot.
+- **Details on demand.** Press OK on the remote for where and when, the camera and lens, the exposure, and (if you turn it on) a satellite map of the spot.
 - **A quiet home screen**, if you want it: your apps over a photo, no ads, with the Google TV home one click away.
 - **A photo manager on your phone.** Folders become groups on the TV. Every photo is scored and near-duplicates are grouped. Hide, boost, trim clips and choose framing, for many at once.
-- **Stays at home.** No account and no cloud. Your photos never leave your network.
+- **Stays at home.** No account and no cloud. Your photos never leave your network, and the [online extras](docs/GUIDE.md#online-extras) (weather, headlines, place names, maps) stay off unless you turn them on.
 
 <table>
   <tr>
@@ -69,7 +74,7 @@ cd ~/tvframe
 
 <p align="center"><img src="docs/screenshots/setup.png" alt="./tvframe setup in a terminal: Docker found, NVIDIA GPU found, four questions answered, the server running, and the photo manager's address" width="760"></p>
 
-`setup` checks Docker and your graphics card (and offers to install what is missing), asks where your photos are, your town for the weather, your time zone and this computer's address, then downloads and starts the server. The first time takes a few minutes. It ends by printing the photo manager's address, `http://<this computer>:8150/`. Open it on your phone.
+`setup` checks Docker and your graphics card (and offers to install what is missing), asks where your photos are, which [online extras](docs/GUIDE.md#online-extras) you want (all off unless you say yes), your time zone and this computer's address, then downloads and starts the server. The first time takes a few minutes. It ends by printing the photo manager's address, `http://<this computer>:8150/`. Open it on your phone.
 
 ### 2. The TV
 
@@ -112,11 +117,11 @@ Adding photos is just dropping them into a folder inside your photos folder, or 
 
 ## Learn more
 
-- [Guide](docs/GUIDE.md): the TV and the photo manager page by page, settings, Home Assistant and other extras, what leaves your network, troubleshooting.
+- [Guide](docs/GUIDE.md): the TV and the photo manager page by page, settings, the online extras and how to switch them, Home Assistant, troubleshooting.
 - [Devices](docs/DEVICES.md): which TVs and servers work, and why.
 - [How it works](docs/ARCHITECTURE.md): the parts, the build pipeline, the repository layout and development.
 - [Running without Docker](docs/MANUAL.md) and [releasing](docs/RELEASING.md).
 
 ## License
 
-[MIT](LICENSE). The scoring models in the server image (OpenCLIP ViT-L/14, the LAION aesthetic predictor, YuNet) come under their own licenses.
+[MIT](LICENSE), provided as is, without warranty of any kind. The scoring models in the server image (OpenCLIP ViT-L/14, the LAION aesthetic predictor, YuNet) come under their own licenses, and each online extra under its service's terms.

@@ -4,7 +4,7 @@ was taken, written to site/media/maps/<id>.png. Esri World Imagery (satellite) w
 overlays: far easier to read from the couch than a dark street map, and a racetrack or a beach is obvious at a glance.
 Light use with a User-Agent, no key; tiles are cached in ~/.cache/tvframe-tiles/esri, so a rebuild only fetches tiles
 it has never seen. Credit drawn small in the corner. Run by tools/library_sync.sh
-before prod_build.py; photos without GPS get no map.
+before prod_build.py; photos without GPS get no map. Only with TVFRAME_MAPS=on; turned off, it removes the maps it drew.
 
   python3 tools/maps.py [--force]
 """
@@ -92,6 +92,11 @@ def main():
     ap.add_argument("--force", action="store_true")
     a = ap.parse_args()
     os.makedirs(OUT, exist_ok=True)
+    if not tvconf.MAPS:
+        for f in os.listdir(OUT):
+            os.remove(os.path.join(OUT, f))
+        print("maps: off (TVFRAME_MAPS=on in config.env turns them on)")
+        return
     items = [i for i in json.load(open(ITEMS)) if i.get("lat") is not None and i.get("lon") is not None]
     keep, made = set(), 0
     for i in items:

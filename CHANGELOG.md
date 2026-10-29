@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.1
+
+- **Online extras are off until you turn them on.** Weather and air quality (Open-Meteo), headlines (NPR), place names (OpenStreetMap) and satellite maps (Esri) each have an on/off line in `config.env`, and `setup` asks about each one. Off, TV Frame never contacts that service. See [Online extras](docs/GUIDE.md#online-extras).
+- Glance's rotating tile skips air quality, headlines and sun times when there is nothing to show, instead of saying "No reading yet".
+- The README says plainly that this is a personal project shared as is: no support, no promised updates, use at your own risk.
+
 ## 0.4.0
 
 The first public release.

@@ -32,7 +32,7 @@ def _albums():
     return out
 ALBUMS = _albums()
 HOME = (float(tvconf.get('HOME_LAT', tvconf.LIVE_LAT or 0)), float(tvconf.get('HOME_LON', tvconf.LIVE_LON or 0)))  # trips: more than ~40 km away
-OFFLINE = '--offline' in sys.argv
+OFFLINE = '--offline' in sys.argv or not tvconf.PLACES   # place lookups only with TVFRAME_PLACES=on
 UA = 'tvframe-home-preview/1.0 (private LAN photo frame, low volume)'
 os.makedirs(R, exist_ok=True)
 cache = json.load(open(C)) if os.path.exists(C) else {}

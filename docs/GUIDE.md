@@ -4,8 +4,8 @@ Everything after the install: the TV, the photo manager, settings, extras and fi
 
 - [Using it](#using-it)
 - [Settings](#settings)
+- [Online extras](#online-extras)
 - [Optional extras](#optional-extras)
-- [What leaves your network](#what-leaves-your-network)
 - [Troubleshooting](#troubleshooting)
 
 ## Using it
@@ -116,13 +116,34 @@ Everything lives in `~/.config/tvframe/config.env`, written by `setup` and safe 
 | `TVFRAME_HOST` | This computer's address on your network, as the TV and your phone reach it. |
 | `TVFRAME_TV` | The TV's address for installing and the watchdog, such as `192.168.1.30:5555`. Set by `./tvframe tv`. |
 | `TVFRAME_TZ` | Time zone for the clock, schedules and logs, such as `America/New_York`. |
-| `LIVE_LAT`, `LIVE_LON`, `LIVE_PLACE` | Where the weather, air quality and sun times are for, and the name shown. Leave them out to turn the weather off. |
-| `HOME_LAT`, `HOME_LON` | Photos further than about 40 km from here count as trips. Defaults to the weather location. |
+| `TVFRAME_WEATHER`, `TVFRAME_HEADLINES`, `TVFRAME_PLACES`, `TVFRAME_MAPS` | The [online extras](#online-extras), each `on` or `off` (the default). |
+| `LIVE_LAT`, `LIVE_LON`, `LIVE_PLACE` | Where you are, for sun times and golden hour (worked out on the server) and the weather when it is on, and the name shown. |
+| `HOME_LAT`, `HOME_LON` | Photos further than about 40 km from here count as trips. Defaults to `LIVE_LAT` and `LIVE_LON`. |
 | `TVFRAME_QUIET_HOME` | `1` for the quiet home screen, `0` to leave the Google TV home alone. Set by `./tvframe tv`. |
 | `TVFRAME_ENCODER` | `auto` (the default: NVENC when it works, else the CPU), `nvenc` or `cpu`. |
 | `HA_URL`, `HA_TOKEN_FILE`, `HA_ENTITIES`, `HA_NOTIFY` | Home Assistant, all optional. See below. |
 
 Two more files sit next to the checkout and are written by `setup`: `.env` (the folders Docker mounts, your user id, which image to use) and, with an NVIDIA card, `compose.override.yaml`.
+
+## Online extras
+
+TV Frame needs no account and works without the internet. Four extras use free outside services. **Each one is off until you turn it on**, and while it is off TV Frame never contacts that service. None of them ever gets your photos.
+
+| Setting | What you get | Service | What it is sent |
+| --- | --- | --- | --- |
+| `TVFRAME_WEATHER` | Weather and air quality on Glance, and the town lookup during setup | [Open-Meteo](https://open-meteo.com) | Your town's location (`LIVE_LAT`, `LIVE_LON`) |
+| `TVFRAME_HEADLINES` | The headline tile | [NPR](https://www.npr.org) top stories feed | Nothing beyond the request |
+| `TVFRAME_PLACES` | Place names under photos that have a location | [OpenStreetMap](https://www.openstreetmap.org) Nominatim and Overpass | Each photo's location, rounded to about 100 m |
+| `TVFRAME_MAPS` | Satellite maps in the details panel | [Esri World Imagery](https://www.arcgis.com/home/item.html?id=10df2279f9684e4a9f6a7f08febac2a9) | The map area around each photo |
+
+**Turning one on** means you accept that service's terms of use; you are responsible for using it within them. `setup` asks about each one (the answer is no unless you say yes). To change your mind later:
+
+1. Open `~/.config/tvframe/config.env` and set the line to `on` or `off`, for example `TVFRAME_MAPS=off`.
+2. Run `./tvframe restart`. For places and maps, also run `./tvframe rebuild`.
+
+Turned off, weather and headlines disappear from the TV within 20 minutes, and maps are deleted at the next rebuild. Place names already looked up stay in the captions; delete `real/geocode-cache.json` and rebuild to drop them too. Photos without a location never cause a lookup, and results are cached so each place is asked about once.
+
+**Google Photos shared albums** ([`ingest/`](../ingest/README.md)) are a separate, manual tool: nothing runs it unless you set it up yourself. Read the note at the top of its README first.
 
 ## Optional extras
 
@@ -130,19 +151,6 @@ Two more files sit next to the checkout and are written by `setup`: `.env` (the 
 - **Google Photos shared albums.** [`ingest/README.md`](../ingest/README.md) pulls shared albums into folders on a schedule.
 - **iPhone uploads.** The manager's menu has Send photos from iPhone: a share sheet shortcut that uploads straight into a folder.
 - **Sony S-Log3 video.** Put Sony's S-Log3 (S-Gamut3.Cine) to Rec.709 LUT, as a 33-point `.cube` file, at `tools/slog3_709.cube` and ungraded clips get it applied. Without it they play as shot.
-
-## What leaves your network
-
-TV Frame runs at home and needs no account. It reaches out to these free services, none of which get your photos:
-
-| Service | For | Sent |
-| --- | --- | --- |
-| [Open-Meteo](https://open-meteo.com) | Weather, air quality, the town lookup during setup | The weather location |
-| [NPR](https://www.npr.org) top stories RSS | The headline tile | Nothing |
-| [OpenStreetMap](https://www.openstreetmap.org) Nominatim and Overpass | Place names for photos with a location | Each photo's location, rounded to about 100 m |
-| [Esri World Imagery](https://www.arcgis.com/home/item.html?id=10df2279f9684e4a9f6a7f08febac2a9) | The small satellite maps in the details panel | The map area around each photo |
-
-Photos without a location never cause a lookup. Results are cached, so each place is looked up once.
 
 ## Troubleshooting
 

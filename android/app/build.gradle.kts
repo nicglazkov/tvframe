@@ -28,8 +28,8 @@ android {
         applicationId = "app.tvframe"
         minSdk = 31
         targetSdk = 34
-        versionCode = 17
-        versionName = "0.4.0"
+        versionCode = 18
+        versionName = "0.4.1"
         buildConfigField("String", "TVFRAME_SERVER", "\"$tvframeServer\"")
         buildConfigField("String", "TVFRAME_TZ", "\"$tvframeTz\"")
     }

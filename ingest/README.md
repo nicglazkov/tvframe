@@ -1,5 +1,8 @@
 # TV Frame: photo source (Google Photos shared albums)
 
+> [!CAUTION]
+> **Off unless you set it up, and at your own risk.** This tool reads Google Photos share pages the way a browser does. That is not an API Google offers for this, it may be against Google's terms of service, and it can stop working at any time. Use it only with albums you own or have permission to copy, and only if you accept that responsibility. To stop, delete `albums.txt` and any schedule you added for `sync.sh`.
+
 This folder pulls photos and videos from Google Photos albums onto the server, at full
 original quality, and then re-runs the curation so the slideshow has fresh scores.
 

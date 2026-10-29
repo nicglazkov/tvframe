@@ -157,7 +157,7 @@ cmd_setup() {
   check_gpu
 
   step "Your settings"
-  local keep=n library place tz host lat="" lon="" name="" geo
+  local keep=n library place tz host lat="" lon="" name="" geo weather=off headlines=off places=off maps=off
   if [ -s "$CONF" ] && yesno "Settings found in $CONF. Keep them?" y; then keep=y; ok "kept"; fi
   ask library "Where are your photos? (each folder in it shows on the TV as a group)" "$(getconf TVFRAME_LIBRARY_DIR || true)"
   [ -n "$library" ] || library="$T/library"
@@ -165,15 +165,22 @@ cmd_setup() {
   mkdir -p "$library" || die "Cannot make $library"
   ok "photos: $library ($(find "$library" -type f 2>/dev/null | wc -l | tr -d ' ') files)"
   if [ "$keep" = n ]; then
-    ask place "Your town, for the weather on the TV (leave empty to skip)" ""
+    note "TV Frame works without the internet. Four online extras are off unless you turn them on here."
+    note "Each sends a little to an outside service, under that service's terms (docs/GUIDE.md#online-extras)."
+    if yesno "Weather and air quality on the TV, from Open-Meteo? (sends your town's location)" n; then
+      ask place "Your town" ""
+    fi
     if [ -n "$place" ]; then
       geo="$(curl -fsS "https://geocoding-api.open-meteo.com/v1/search?count=1&name=$(printf %s "$place" | sed 's/ /+/g')" || true)"
       lat="$(printf %s "$geo" | grep -o '"latitude":[-0-9.]*' | head -1 | cut -d: -f2)"
       lon="$(printf %s "$geo" | grep -o '"longitude":[-0-9.]*' | head -1 | cut -d: -f2)"
       name="$(printf %s "$geo" | grep -o '"name":"[^"]*"' | head -1 | cut -d'"' -f4)"
       tz="$(printf %s "$geo" | grep -o '"timezone":"[^"]*"' | head -1 | cut -d'"' -f4)"
-      if [ -n "$lat" ]; then ok "found $name ($lat, $lon)"; else warn "could not find \"$place\"; no weather for now (LIVE_LAT and LIVE_LON in $CONF)"; fi
+      if [ -n "$lat" ]; then ok "found $name ($lat, $lon)"; weather=on; else warn "could not find \"$place\"; no weather for now (LIVE_LAT and LIVE_LON in $CONF)"; fi
     fi
+    yesno "Headlines on the TV, from NPR?" n && headlines=on
+    yesno "Place names for photos that have a location, from OpenStreetMap? (sends each photo's rough location)" n && places=on
+    yesno "Satellite maps in the photo details, from Esri? (sends the area around each photo)" n && maps=on
     ask tz "Time zone" "${tz:-$(host_tz)}"
     ask host "This computer's address on your network, as the TV will reach it" "$(lan_ip)"
     [ -n "$host" ] || die "Need this computer's address on your network (for example 192.168.1.20)."
@@ -181,6 +188,7 @@ cmd_setup() {
     setconf TVFRAME_HOST "$host"
     setconf TVFRAME_TZ "$tz"
     if [ -n "$lat" ]; then setconf LIVE_LAT "$lat"; setconf LIVE_LON "$lon"; setconf LIVE_PLACE "$name"; fi
+    setconf TVFRAME_WEATHER "$weather"; setconf TVFRAME_HEADLINES "$headlines"; setconf TVFRAME_PLACES "$places"; setconf TVFRAME_MAPS "$maps"
     ok "saved in $CONF"
   fi
   setconf TVFRAME_LIBRARY_DIR "$library"

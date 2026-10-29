@@ -32,18 +32,13 @@ If the key is ever lost, a new one works for new installs, but every existing TV
 3. The Release workflow (`.github/workflows/release.yml`) builds the signed app and attaches it to a draft release as `tvframe-v0.4.0.apk` and `tvframe.apk`, and pushes the server images as `:cu128` and `:cpu` (plus `:v0.4.0-cu128` and `:v0.4.0-cpu`).
 4. Read the draft, then publish it. Only a published release counts as `latest`, which is what installs download.
 
-## Going public
+## Keeping it hands-off
 
-Everything else is done: the MIT license, the signing key and secrets, the first release, and a history with nothing personal in it. What is left:
-
-1. **Check the history once more:** `git log -p | grep -inE 'token|password|192\.168\.[0-9]+\.'` should only find the documentation examples (192.168.1.x) and the secret names in the Release workflow.
-2. **Make the repository public:** Settings > General > Danger Zone > Change visibility. The one-line installer in the README works from then on.
-3. **Make the server image public:** Packages > tvframe > Package settings > Change visibility. Until then, installs build the server image themselves.
-4. **Try an install from scratch** on a computer that has never had TV Frame, to confirm it downloads both parts.
+The repository is public with Issues, Discussions, the wiki and Projects turned off, and the README says there is no support. Pull requests cannot be turned off on GitHub; they are left unanswered. Before each release, check the history once more: `git log -p | grep -inE 'token|password|192\.168\.[0-9]+\.'` should only find the documentation examples (192.168.1.x) and the secret names in the Release workflow.
 
 ## The CI workflow
 
-`.github/workflows/ci.yml` runs on every push: the Python compiles, shellcheck passes, the CPU video encoders produce the same 10-bit HEVC as NVENC, and the TV app builds. On a private repository these runs count against the account's free Actions minutes; on a public one they are free.
+`.github/workflows/ci.yml` runs on every push: the Python compiles, shellcheck passes, the CPU video encoders produce the same 10-bit HEVC as NVENC, and the TV app builds. On a public repository these runs are free.
 
 ## An installer for people who never open a terminal
 

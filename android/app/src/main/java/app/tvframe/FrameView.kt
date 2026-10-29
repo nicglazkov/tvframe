@@ -514,7 +514,8 @@ class FrameView(ctx: Context, private val role: Role = Role.SHOW, private val la
 
     private val ts get() = tune.tileScale
     private val ss get() = tune.smallScale
-    private val tiles = listOf("sun", "air", "news", "otd")
+    // the rotating tile; sun, air and headlines only while the server sends them (each is a setting there)
+    private val tiles get() = listOf("sun", "air", "news", "otd").filter { it == "otd" || live()?.optJSONObject(it) != null }
     private val weatherG = Group(); private val homeG = Group(); private val swapG = Group(); private val timeG = Group()
     private val wifiG = Group()
 
