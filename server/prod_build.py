@@ -257,6 +257,13 @@ def cams(ps):
     return " and ".join(out)
 
 
+# Glance: photos that do not fill the screen sit as pairs or trios on a blurred backdrop, in the band
+# between the two caption lines (top left, end near y 275) and the clock and tile row (glyphs start near y 1675).
+# Tall photos are cropped a little wider (to PAIR_MIN / TALL_MIN) so a pair or three across fill more of the screen.
+G_TOP, G_BOT, G_GUT = 330, 1615, 64
+PAIR_MIN, TALL_MIN, TALL_GUT = 0.88, 0.8, 56
+
+
 def shared_caption(ps):
     """Two caption lines for a glance spread: the places, then the day and camera."""
     line = shared_line(ps)
