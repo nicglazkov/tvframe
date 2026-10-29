@@ -11,7 +11,10 @@ For every photo (from ~/tvframe/curate/out/scores.json when it exists, else ever
   av1/<id>.mp4      one-frame 10-bit AV1 stream (only with --av1)
   index.json        what was built, with sizes, weights, focal points, native size
 
-Only rebuilds what is missing or older than its source. Encoding uses NVENC.
+Only rebuilds what is missing or older than its source, or whose framing changed. Encoding uses NVENC.
+Framing you pick in the photo manager (site/data/framing.json, photos_api.py /bulk frame) wins over the rule below:
+"whole" shows the whole photo on its backdrop, "fill" fills the screen around the focal point, a box fills it
+with that part of the photo. With --only id,id just those photos are built and index.json keeps the rest.
 """
 import argparse, json, os, subprocess, sys, time
 import os as _os, sys as _sys
@@ -36,6 +39,10 @@ def load_real():
     4K sources the site already made (sRGB, HEIC decoded, rotation applied), captions as on the site."""
     sc = json.load(open(os.path.join(ROOT, "site", "data", "scores.json")))["photos"]
     caps = json.load(open(os.path.join(ROOT, "site", "data", "captions.json")))["photos"]
+    try:
+        fits = json.load(open(os.path.join(ROOT, "site", "data", "framing.json"))).get("frame", {}) or {}
+    except (OSError, ValueError):
+        fits = {}
     photos = []
     for pid, r in sc.items():
         f = os.path.join(ROOT, "site", "media", "p", f"{pid}-4k.jpg")
@@ -47,7 +54,7 @@ def load_real():
             id=pid, src=f, weight=float(r.get("weight", 50.0)),
             focal=r.get("focal_point") or [0.5, 0.5], crop=r.get("crop_16x9"), mat=r.get("mat_color"),
             cluster=r.get("cluster_id"), rep=r.get("is_rep", True), date=c.get("date") or r.get("date"),
-            reason=r.get("reason"), caption=photoset.caption(c), author=None))
+            reason=r.get("reason"), caption=photoset.caption(c), author=None, fit=fits.get(pid)))
     return photos, "real"
 
 
@@ -124,11 +131,42 @@ def cover_box(iw, ih, focal, aspect):
     return (x0, y0, x0 + cw, y0 + ch)
 
 
-def frame_focal(iw, ih, focal):
+def fills(iw, ih, p):
+    """True when the photo fills the screen: your framing if you picked one, else is_cover()."""
+    f = p.get("fit") or {}
+    if f.get("fit") == "whole":
+        return False
+    if f.get("fit") == "fill" or f.get("box"):
+        return True
+    return is_cover(iw, ih)
+
+
+def fill_box(iw, ih, p, aspect):
+    """The part of the photo that fills the screen: your box (0..1 of the photo, made exactly the screen's shape
+    around its centre and kept inside the photo) or the largest box around the focal point."""
+    b = (p.get("fit") or {}).get("box")
+    if not b:
+        return cover_box(iw, ih, p["focal"], aspect)
+    x0, y0, x1, y1 = b[0] * iw, b[1] * ih, b[2] * iw, b[3] * ih
+    cx, cy, w = (x0 + x1) / 2, (y0 + y1) / 2, max(16.0, x1 - x0)
+    w = min(w, iw, ih * aspect)
+    h = w / aspect
+    x0, y0 = min(max(cx - w / 2, 0), iw - w), min(max(cy - h / 2, 0), ih - h)
+    return (x0, y0, x0 + w, y0 + h)
+
+
+def fit_sig(p):
+    f = p.get("fit") or {}
+    return json.dumps({k: f[k] for k in ("fit", "box") if k in f}, sort_keys=True)
+
+
+def frame_focal(iw, ih, focal, p=None):
     """Focal point in composed-frame coordinates (0..1)."""
-    if not is_cover(iw, ih):
+    if not (fills(iw, ih, p) if p else is_cover(iw, ih)):
         return [0.5, 0.5]
-    x0, y0, x1, y1 = cover_box(iw, ih, focal, W / H)
+    x0, y0, x1, y1 = fill_box(iw, ih, p, W / H) if p else cover_box(iw, ih, focal, W / H)
+    if not (x0 <= focal[0] * iw <= x1 and y0 <= focal[1] * ih <= y1):
+        return [0.5, 0.5]
     return [round((focal[0] * iw - x0) / (x1 - x0), 4), round((focal[1] * ih - y0) / (y1 - y0), 4)]
 
 
@@ -153,8 +191,8 @@ def compose(img, p, w, h):
     """Return (frame, layout). layout is 'cover' or 'mat'."""
     iw, ih = img.size
     ar = iw / ih
-    if is_cover(iw, ih):
-        box = cover_box(iw, ih, p["focal"], w / h)
+    if fills(iw, ih, p):
+        box = fill_box(iw, ih, p, w / h)
         return img.resize((w, h), Image.LANCZOS, box=box, reducing_gap=3.0), "cover"
     # mat: photo as large as it fits, with a thin even gap to the screen edge (1.2 percent of the height,
     # 26 px at 2160), on a blurred copy of itself
@@ -250,15 +288,22 @@ def build(p, args):
         im = ImageOps.exif_transpose(im).convert("RGB")
         p["native"] = list(im.size)
         redo = args.remat and not is_cover(*im.size)   # --remat: rebuild every mat frame (layout change)
+        sig, sigf = fit_sig(p), os.path.join(CACHE, "frames", f"{p['id']}.fit")
+        try:
+            redo = redo or open(sigf).read() != sig                       # you changed how it is framed
+        except OSError:
+            redo = redo or sig != "{}"
         if redo or stale(fr, p["src"]):
             f, layout = compose(im, p, W, H)
             f.save(fr, quality=93, subsampling=0 if args.q444 else 2, optimize=True)
         else:
-            layout = "cover" if is_cover(*im.size) else "mat"
-        p["frame_focal"] = frame_focal(im.size[0], im.size[1], p["focal"])
+            layout = "cover" if fills(*im.size, p) else "mat"
+        p["frame_focal"] = frame_focal(im.size[0], im.size[1], p["focal"], p)
         if redo or stale(kb, p["src"]):
             f, _ = compose(im, p, int(W * KB), int(H * KB) + 1)
             f.save(kb, quality=92)
+        with open(sigf, "w") as fh:
+            fh.write(sig)
     p["layout"] = layout
     for codec in (["hevc", "hevc8"] + (["av1"] if args.av1 else [])):
         out = os.path.join(CACHE, codec, f"{p['id']}.mp4")
@@ -276,11 +321,15 @@ def main():
     ap.add_argument("--q444", action="store_true", help="4:4:4 JPEG frames")
     ap.add_argument("--jobs", type=int, default=6)
     ap.add_argument("--remat", action="store_true", help="rebuild frames for photos that do not fill 16:9")
+    ap.add_argument("--only", default="", help="comma-separated ids: build just these, keep the rest of index.json")
     args = ap.parse_args()
     for d in ("frames", "kb", "hevc", "hevc8", "av1", "loop", "video8"):
         os.makedirs(os.path.join(CACHE, d), exist_ok=True)
     make_test_chart()
     photos, source = load_photos()
+    only = {i for i in args.only.split(",") if i}
+    if only:
+        photos = [p for p in photos if p["id"] in only]
     print(f"{len(photos)} photos ({source})")
     t = time.time()
     with ThreadPoolExecutor(args.jobs) as ex:
@@ -288,6 +337,13 @@ def main():
     for p in done:
         print(f"{p['id']:>22} {p['layout']:5} native {p['native'][0]}x{p['native'][1]} "
               f"jpg {p['frame_bytes']//1024}K hevc {p.get('hevc_bytes',0)//1024}K av1 {p.get('av1_bytes',0)//1024}K")
+    if only:                                   # keep everything else as the last full build left it
+        try:
+            old = json.load(open(os.path.join(CACHE, "index.json")))["photos"]
+        except (OSError, ValueError, KeyError):
+            old = []
+        new = {p["id"]: p for p in done}
+        done = [new.pop(p["id"], p) for p in old] + list(new.values())
     idx = dict(generated=__import__("datetime").datetime.now(__import__("zoneinfo").ZoneInfo(tvconf.TZ)).isoformat(timespec="seconds"), source=source, width=W, height=H, photos=done)
     json.dump(idx, open(os.path.join(CACHE, "index.json"), "w"), indent=1)
     print(f"done in {time.time()-t:.1f}s")

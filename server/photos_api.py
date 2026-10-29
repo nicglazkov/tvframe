@@ -17,6 +17,9 @@ the playlist rebuilt (server/prod_build.py, about 15 s), which this API starts b
                                      Shortcut) a name without a usable extension gets one from the file's first bytes
   POST /hide    {id, hidden}         take a photo off the TV or put it back (site/data/hidden.json)
   POST /boost   {id, level}          how often it comes up: less, normal, more, most or fav (site/data/boost.json)
+  POST /bulk    {action: "frame", ids, frame} how each photo fills the TV (site/data/framing.json): "whole", "fill" (around
+                                     its focal point), "auto" or {box: [x0, y0, x1, y1]} (0..1 of the photo, made 16:9).
+                                     Their 4K frames are made again (server/prepare.py --only), a minute or two
   POST /bulk    {action: "trim", ids, trim}  which part of each clip the TV plays (site/data/trim.json): trim is
                                      "whole", "auto" (the best 30 s, as scored) or {start, end} in seconds of the original.
                                      The changed clips are cut again (tools/real_videos.py, clip_loops.py), a few minutes
@@ -43,12 +46,17 @@ HOME = os.path.expanduser("~/tvframe")
 sys.path.insert(0, os.path.join(HOME, "tools"))
 import library_ids, season  # noqa: E402
 import real_videos  # noqa: E402
+os.environ.setdefault("TVFRAME_SET", "real")
+sys.path.insert(0, os.path.join(HOME, "server"))
+import prepare  # noqa: E402
 
 SITE = os.path.join(HOME, "site")
 LIB = os.path.join(HOME, "library")
 TRASH = os.path.join(HOME, "library-trash")
 HIDDEN = os.path.join(SITE, "data/hidden.json")
 BOOST = os.path.join(SITE, "data/boost.json")
+FRAMING = os.path.join(SITE, "data/framing.json")    # photo id -> {fit: whole|fill} or {box}: how it fills the TV
+INDEX = os.path.join(HOME, "server/cache-real/index.json")   # server/prepare.py: each photo's 4K frame, size, focal point
 TRIM = os.path.join(SITE, "data/trim.json")    # clip id -> {whole} or {start, end}: the part the TV plays
 FULL = os.path.join(SITE, "media/v/full")       # full-length 960 px copies for the trim editor
 MIX = os.path.join(SITE, "data/mix.json")      # clips per 100 slides, the manager's Photos and clips slider
@@ -199,50 +207,103 @@ def apply_now():
         apply_state["running"] = False
 
 
-recut = {"ids": set(), "gen": 0, "timer": None, "running": False, "error": None}
+# rebuilds after a trim or framing change, one kind at a time under the library lock: the ids being redone and the
+# commands that redo them (a change made while one runs starts one more pass)
+jobs = {k: {"ids": set(), "gen": 0, "timer": None, "running": False, "error": None} for k in ("clips", "photos")}
 
 
-def recut_soon(ids):
-    """Trims changed: cut those clips again for the TV, then rebuild the playlist. Waits for a library rebuild in
-    progress (same lock); a trim changed while it runs starts one more pass."""
+def job_cmds(kind, ids):
+    if kind == "clips":     # cut the clips again, their loops, the site's copies, the playlist
+        return [["tools/real_videos.py"], ["tools/clip_loops.py"], ["tools/sync_data.py"], ["server/prod_build.py"]]
+    return [["server/prepare.py", "--only", ",".join(sorted(ids))], ["server/prod_build.py"]]    # the photos' 4K frames, the playlist
+
+
+def redo_soon(kind, ids):
+    j = jobs[kind]
     with lock:
-        recut["ids"] |= set(ids)
-        recut["gen"] += 1
-        if recut["timer"]:
-            recut["timer"].cancel()
-        recut["timer"] = threading.Timer(3.0, recut_now)
-        recut["timer"].start()
+        j["ids"] |= set(ids)
+        j["gen"] += 1
+        if j["timer"]:
+            j["timer"].cancel()
+        j["timer"] = threading.Timer(3.0, redo_now, (kind,))
+        j["timer"].start()
 
 
-def recut_now():
+def redo_now(kind):
+    j = jobs[kind]
     with lock:
-        if recut["running"]:
+        if j["running"]:
             return                                       # the pass in progress loops once more for it
-        recut["running"] = True
+        j["running"] = True
     try:
         while True:
             with lock:
-                gen, ids = recut["gen"], set(recut["ids"])
+                gen, ids = j["gen"], set(j["ids"])
             with open(LOCK, "w") as fd:
                 fcntl.flock(fd, fcntl.LOCK_EX)
                 env = {**os.environ, "TVFRAME_SET": "real"}
-                for cmd in (["tools/real_videos.py"], ["tools/clip_loops.py"], ["tools/sync_data.py"], ["server/prod_build.py"]):
-                    r = subprocess.run([sys.executable, os.path.join(HOME, *cmd)], capture_output=True, text=True, timeout=7200,
-                                       cwd=HOME if cmd[0].startswith("tools") else os.path.join(HOME, "server"), env=env)
-                    recut["error"] = (r.stderr or r.stdout)[-300:] if r.returncode else None
+                for cmd in job_cmds(kind, ids):
+                    r = subprocess.run([sys.executable, os.path.join(HOME, cmd[0]), *cmd[1:]], capture_output=True, text=True,
+                                       timeout=7200, cwd=HOME if cmd[0].startswith("tools") else os.path.join(HOME, "server"), env=env)
+                    j["error"] = (r.stderr or r.stdout)[-300:] if r.returncode else None
                     if r.returncode:
                         break
             with lock:
-                if recut["gen"] == gen:
-                    recut["ids"] -= ids
+                if j["gen"] == gen:
+                    j["ids"] -= ids
                     break
     except Exception as e:
-        recut["error"] = str(e)[-300:]
+        j["error"] = str(e)[-300:]
     finally:
         with lock:
-            recut["running"] = False
-            if recut["error"]:
-                recut["ids"] = set()
+            j["running"] = False
+            if j["error"]:
+                j["ids"] = set()
+
+
+def unfinished():
+    """A restart forgets the rebuilds it had queued: find trims and framing the TV's copies do not follow yet."""
+    trims, dur = load(TRIM, {}).get("trim", {}), {i["id"]: i.get("duration") for i in load(ITEMS, [])}
+    real_videos.TRIMS = trims
+    clips = []
+    for pid in trims:
+        r = load(os.path.join(real_videos.V, "recipe", f"{pid}.json"), {})
+        if dur.get(pid) and r:
+            ss, tt = real_videos.excerpt(pid, float(dur[pid]))
+            if abs(r.get("ss", -1) - ss) > .05 or abs(r.get("tt", -1) - tt) > .05:
+                clips.append(pid)
+    fits, frames = load(FRAMING, {}).get("frame", {}), os.path.join(os.path.dirname(INDEX), "frames")
+    want = {pid: prepare.fit_sig({"fit": f}) for pid, f in fits.items()}
+    for f in os.listdir(frames) if os.path.isdir(frames) else []:
+        if f.endswith(".fit"):
+            want.setdefault(f[:-4], "{}")
+    photos = []
+    for pid, sig in want.items():
+        try:
+            have = open(os.path.join(frames, f"{pid}.fit")).read()
+        except OSError:
+            have = "{}"
+        if have != sig:
+            photos.append(pid)
+    if clips:
+        redo_soon("clips", clips)
+    if photos:
+        redo_soon("photos", photos)
+
+
+def tv_frame(e, fit):
+    """How a photo sits on the TV for the manager: its 4K source size, focal point, the box of it that fills the
+    screen (0..1 of the photo, None when it is shown whole) now and by the automatic rule, and your framing."""
+    if not e or not e.get("native"):
+        return None
+    w, h = e["native"]
+    def box(p):
+        if not prepare.fills(w, h, p):
+            return None
+        b = prepare.fill_box(w, h, p, 16 / 9)
+        return [round(b[0] / w, 4), round(b[1] / h, 4), round(b[2] / w, 4), round(b[3] / h, 4)]
+    p = {"focal": e.get("focal") or [.5, .5]}
+    return {"w": w, "h": h, "focal": p["focal"], "box": box({**p, "fit": fit}), "auto": box(p), "fit": fit}
 
 
 def cut_of(pid):
@@ -470,6 +531,7 @@ def ranking(album):
     picks = group_picks(scores, hidden, keep, also)
     on_tv = {v["id"].split(":", 1)[-1] for v in prod.get("videos", [])}
     trims = load(TRIM, {}).get("trim", {})
+    fits, built = load(FRAMING, {}).get("frame", {}), {p["id"]: p for p in load(INDEX, {}).get("photos", [])}
     rows, clips = [], []
     for it in items:
         pid = it["id"]
@@ -480,11 +542,13 @@ def ranking(album):
             c = clip_info(cs.get(pid), pid)
             clips.append(dict(base, thumb=f"media/v/posters/{pid}.jpg" if os.path.exists(f"{SITE}/media/v/posters/{pid}.jpg") else None,
                               big=web_url(pid), clip=c, shown=pid in show, on_tv=pid in on_tv,
-                              src=it.get("duration"), cut=cut_of(pid), trim=trims.get(pid), recutting=pid in recut["ids"],
+                              src=it.get("duration"), cut=cut_of(pid), trim=trims.get(pid), recutting=pid in jobs["clips"]["ids"],
                               auto=bool(c and c.get("auto_hide") and pid not in show and pid not in hidden)))
             continue
         sc = scores.get(pid)
         thumb = f"media/p/{pid}-720.webp" if os.path.exists(f"{SITE}/media/p/{pid}-720.webp") else None
+        base.update(fr=tv_frame(built.get(pid), {k: v for k, v in (fits.get(pid) or {}).items() if k != "at"} or None),
+                    reframing=pid in jobs["photos"]["ids"])
         if not sc:
             rows.append(dict(base, thumb=thumb, scored=False)); continue
         rep = picks[pid][1] if pid in picks and picks[pid][1] else sc.get("rep_id") or pid
@@ -503,7 +567,7 @@ def ranking(album):
     rows.sort(key=lambda r: (not r["scored"], -(r.get("quality") or 0)))
     for n, r in enumerate(rows):
         r["rank"] = n + 1 if r["scored"] else None
-    return {"album": album, "photos": rows, "clips": clips, "scored_total": len(allq), "recut_error": recut["error"],
+    return {"album": album, "photos": rows, "clips": clips, "scored_total": len(allq), "recut_error": jobs["clips"]["error"], "reframe_error": jobs["photos"]["error"],
             "models": load(SCORES, {}).get("models", {}), "generated": load(SCORES, {}).get("generated")}
 
 
@@ -758,7 +822,7 @@ class H(BaseHTTPRequestHandler):
                 moved.append({"album": album, "file": file, "trash": to_trash(src)})
             return self.send({"ok": True, "count": len(moved), "failed": failed, "undo": {"action": "untrash", "moved": moved}})
         files = {"hidden": (HIDDEN, "hidden"), "level": (BOOST, "boost"), "keep": (KEEP, "keep"), "also": (KEEP, "also"),
-                 "show": (HIDDEN, "shown"), "trim": (TRIM, "trim")}
+                 "show": (HIDDEN, "shown"), "trim": (TRIM, "trim"), "frame": (FRAMING, "frame")}
         with lock:
             docs = {f: load(f, {}) for f, _ in files.values()}      # keep and also share keep.json: load it once
             had = {f: set(doc) for f, doc in docs.items()}
@@ -824,6 +888,28 @@ class H(BaseHTTPRequestHandler):
                                 else {"start": round(st, 2), "end": round(en, 2), "at": now()})
                         else:
                             return self.fail("bad trim")
+                elif act == "frame":                         # how each photo fills the TV
+                    f, photos = b.get("frame"), {i["id"] for i in load(ITEMS, []) if i["kind"] == "photo"}
+                    if any(pid not in photos for pid in ids):
+                        return self.fail("Only photos can be framed.")
+                    if f in ("whole", "fill"):
+                        v = {"fit": f}
+                    elif isinstance(f, dict) and isinstance(f.get("box"), list) and len(f["box"]) == 4:
+                        try:
+                            x0, y0, x1, y1 = (min(1.0, max(0.0, float(x))) for x in f["box"])
+                        except (TypeError, ValueError):
+                            return self.fail("bad box")
+                        if x1 - x0 < .05 or y1 - y0 < .05:
+                            return self.fail("That part is too small.")
+                        v = {"box": [round(x0, 4), round(y0, 4), round(x1, 4), round(y1, 4)]}
+                    elif f == "auto":
+                        v = None
+                    else:
+                        return self.fail("bad frame")
+                    for pid in ids:
+                        old = {k: x for k, x in (data["frame"].get(pid) or {}).items() if k != "at"}
+                        if v is None or old != v:
+                            put(pid, "frame", v if v is None else {**v, "at": now()})
                 elif act == "level":
                     level = b.get("level")
                     if level not in LEVELS:
@@ -837,9 +923,11 @@ class H(BaseHTTPRequestHandler):
                     docs[f].pop(key)                         # don't leave empty sections behind
                 write(docs[f], f)
             force = "show" in changed
+        if "frame" in changed:
+            redo_soon("photos", [pid for pid, was in prev.items() if "frame" in was])
         if "trim" in changed:
-            recut_soon(pid for pid, was in prev.items() if "trim" in was)
-        elif changed:
+            redo_soon("clips", [pid for pid, was in prev.items() if "trim" in was])
+        if changed - {"trim", "frame"}:
             apply_soon(force)
         return self.send({"ok": True, "count": len(ids) or len(prev), "changed": len(changed) > 0, "undo": {"action": "restore", "prev": prev}})
 
@@ -991,5 +1079,6 @@ class H(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    threading.Timer(10.0, unfinished).start()
     threading.Thread(target=season_loop, daemon=True).start()
     ThreadingHTTPServer(("0.0.0.0", 8153), H).serve_forever()
