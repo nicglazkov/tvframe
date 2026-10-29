@@ -7,6 +7,9 @@
 - **One app for every home.** The server's address is set after the app is installed, so a released app can be downloaded instead of built.
 - The quiet home screen is optional.
 - Docs: supported devices, running without Docker, releasing.
+- Fixed: after switching between Photo ranking and Clip ranking, hover previews, Trim and Crop did nothing until the page was reloaded.
+- Fixed: a build that failed is tried again when the server restarts, instead of waiting for the next change in the photo folder.
+- The README is rewritten in depth, with new screenshots from a test install.
 
 ## 0.3.8
 

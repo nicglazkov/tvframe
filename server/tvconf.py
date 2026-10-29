@@ -61,6 +61,8 @@ LIVE_LAT, LIVE_LON, LIVE_PLACE = get("LIVE_LAT"), get("LIVE_LON"), get("LIVE_PLA
 # scorer runs in its own container, on the GPU through these docker run flags.
 IN_DOCKER = os.environ.get("TVFRAME_IN_DOCKER") == "1"
 DOCKER_GPU = get("TVFRAME_DOCKER_GPU", "--runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=all").split()
+if DOCKER_GPU == ["none"]:                      # no GPU: the scorer runs on the CPU
+    DOCKER_GPU = []
 
 
 def ha_token():

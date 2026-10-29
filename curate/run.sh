@@ -9,7 +9,7 @@
 #   TODAY=2026-10-24  date used for "on this day" boosts (default: today on this machine)
 #   META=file.json  favorites and dates (default: sample_meta.json only for the sample set)
 #   CPU=1           run without the GPU
-#   TVFRAME_DOCKER_GPU  the docker run flags that reach the GPU (config.env; default --runtime=nvidia ...)
+#   TVFRAME_DOCKER_GPU  the docker run flags that reach the GPU (config.env; default --runtime=nvidia ...; none for no GPU)
 set -u
 cd "$(dirname "$0")" || exit 1
 HERE="$PWD"
@@ -23,7 +23,7 @@ if [ -z "${META:-}" ] && [ $SAMPLE -eq 1 ]; then META="$HERE/sample_meta.json"; 
 echo "curating ${DIRS[*]} for $TODAY into $OUT"
 # Photo paths are written as /photos/... either way (the TV Frame image links /photos to photos/ in the checkout)
 ARGS=(); for d in "${DIRS[@]}"; do ARGS+=("/photos/$d"); done
-[ -n "${CPU:-}" ] && ARGS+=(--cpu)
+{ [ -n "${CPU:-}" ] || [ "${TVFRAME_DOCKER_GPU:-}" = none ]; } && ARGS+=(--cpu)
 if [ "${TVFRAME_IN_DOCKER:-}" = 1 ]; then
   [ -n "${META:-}" ] && ARGS+=(--meta "$META")
   exec python3 curate.py "${ARGS[@]}" --out "$OUT" --today "$TODAY"
@@ -35,6 +35,6 @@ if [ -n "${META:-}" ]; then
 fi
 # shellcheck disable=SC2206
 GPU=(${TVFRAME_DOCKER_GPU:---runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=all})
-[ -n "${CPU:-}" ] && GPU=()
+{ [ -n "${CPU:-}" ] || [ "${GPU[*]}" = none ]; } && GPU=()
 exec docker run --rm "${GPU[@]}" -u "$(id -u):$(id -g)" -e HOME=/tmp -w /work \
   "${MOUNTS[@]}" tvframe-curate:local python curate.py "${ARGS[@]}" --out /out --today "$TODAY"

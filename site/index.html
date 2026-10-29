@@ -662,7 +662,11 @@ async function act(path, body, done) {
 // ---------- views ----------
 const route = () => { const m = location.hash.match(/^#\/f\/([^/]+)/); return m ? decodeURIComponent(m[1]) : null; };
 const tab = () => /^#\/f\/[^/]+\/rank$/.test(location.hash) ? 'rank' : 'photos';
-window.addEventListener('hashchange', () => { window.scrollTo(0, 0); render(); });
+window.addEventListener('hashchange', () => {
+  window.scrollTo(0, 0);
+  if (tab() === 'rank' || (isAll() && /rank|clips/.test(atab()))) rankData = null;   // fresh scores, before the page draws from them
+  render();
+});
 
 function render() {
   const name = route(), folder = lib.folders.find(f => f.name === name);
@@ -1218,7 +1222,6 @@ function toggleRow(tr) {
     requestAnimationFrame(() => { tr.classList.add('open'); det.classList.add('open'); tr.setAttribute('aria-expanded', 'true'); });
   }
 }
-window.addEventListener('hashchange', () => { if (tab() === 'rank' || (isAll() && /rank|clips/.test(atab()))) rankData = null; });
 
 // ---------- all photos: every photo and clip in one place, pick many and change them at once ----------
 const IC = {

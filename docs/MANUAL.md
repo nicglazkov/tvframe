@@ -6,7 +6,7 @@ The systemd units expect the checkout at `~/tvframe`. Everything else finds its 
 
 ## 1. Server
 
-Requirements: Python 3.12 with Pillow and NumPy, `ffmpeg`, `exiftool`, `adb`, and Docker. An NVIDIA GPU with the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) makes builds fast; without one, set `TVFRAME_ENCODER=cpu` in `config.env` and run the scorer with `CPU=1`. Node 18 or later is only for the screenshot tools.
+Requirements: Python 3.12 with Pillow and NumPy, `ffmpeg`, `exiftool`, `adb`, and Docker. An NVIDIA GPU with the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) makes builds fast; without one, put `TVFRAME_ENCODER=cpu` and `TVFRAME_DOCKER_GPU=none` in `config.env`. Node 18 or later is only for the screenshot tools.
 
 On Ubuntu 24.04:
 
@@ -69,7 +69,7 @@ docker compose -f deploy/site.compose.yml up -d     # the photo manager on :8150
 
 Open `http://<server>:8150/` to see the photo manager.
 
-Settings worth knowing for this way of running: `TVFRAME_ENCODER` (`auto`, `nvenc` or `cpu`), `TVFRAME_DOCKER_GPU` (the `docker run` flags that reach the GPU; the default is `--runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=all`, and many hosts want `--gpus all`) and `TVFRAME_QUIET_HOME=0` to leave the Google TV home alone. All of them go in `~/.config/tvframe/config.env`.
+Settings worth knowing for this way of running: `TVFRAME_ENCODER` (`auto`, `nvenc` or `cpu`), `TVFRAME_DOCKER_GPU` (the `docker run` flags that reach the GPU; the default is `--runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=all`, many hosts want `--gpus all`, and `none` runs the scorer on the CPU) and `TVFRAME_QUIET_HOME=0` to leave the Google TV home alone. All of them go in `~/.config/tvframe/config.env`.
 
 ## 4. The TV app
 

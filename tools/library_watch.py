@@ -49,9 +49,16 @@ def main():
     status(state="idle", files=len(built))
     log(f"watching {LIB}, {len(built)} files")
     seen, changed_at = built, None
+    try:
+        last = json.load(open(os.path.expanduser("~/.cache/tvframe-progress.json"))).get("step")
+    except (OSError, ValueError):
+        last = None
     if built and not os.path.exists(f"{T}/site/data/manifest.json"):     # a new install: build what is there now
         built, changed_at = [], time.time() - QUIET
         log("nothing built yet: building now")
+    elif built and last == "failed":                                     # the last build failed before a restart
+        built, changed_at = [], time.time() - QUIET
+        log("the last build failed: building again now")
     while True:
         time.sleep(15)
         now = snapshot()

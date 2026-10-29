@@ -136,7 +136,7 @@ wait_up() {
 }
 
 get_server() {   # a published image when .env names one (TVFRAME_IMAGE), else build it here
-  if grep -q '^TVFRAME_IMAGE=' .env 2>/dev/null; then dc pull tvframe; else dc build tvframe; fi
+  if grep -q '^TVFRAME_IMAGE=' .env 2>/dev/null; then dc pull tvframe </dev/null; else dc build tvframe </dev/null; fi
 }
 
 # ------------------------------------------------------------------------------------------------ setup
@@ -185,7 +185,7 @@ cmd_setup() {
   step "Building the server"
   note "The first time downloads about $(grep -q '^TVFRAME_TORCH=cpu' .env && echo 2 || echo 7) GB and takes a few minutes."
   get_server
-  dc up -d
+  dc up -d </dev/null
   wait_up || die "The server did not come up. See: ./tvframe logs"
   ok "running"
 
