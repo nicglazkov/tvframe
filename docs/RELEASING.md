@@ -1,49 +1,53 @@
 # Releasing
 
-The repository is private for now. Everything below is ready so that going public is a short list, not a project.
+## How an install gets its parts
 
-## How an install works today
+`./tvframe setup` downloads the server image from `ghcr.io/nicglazkov/tvframe` (`:cu128` with a GPU, `:cpu` without), and `./tvframe tv` downloads the signed app from the latest GitHub release. The app is told the server's address after it is installed, so one build serves everyone.
 
-`./tvframe setup` builds the server image on the user's computer (about 10 minutes) and `./tvframe tv` builds the TV app there too, signed with a key made on that computer. Nothing has to be published for this to work, which is why it already works from a private clone.
-
-Two settings in `.env` switch an install to downloads instead, once releases exist:
+Each falls back to building on the user's computer when there is nothing to download (a private repository, no release yet, no internet to GitHub). Two `.env` settings force the local build:
 
 | Setting | Effect |
 | --- | --- |
-| `TVFRAME_IMAGE=ghcr.io/nicglazkov/tvframe` | `setup` and `update` pull the server image (`:cu128` or `:cpu`, from `TVFRAME_TORCH`) instead of building it. |
-| `TVFRAME_APK_URL=https://github.com/nicglazkov/tvframe/releases/latest/download/tvframe.apk` | `tv` downloads the signed app instead of building it. The app is told the server's address after it is installed, so one build serves everyone. |
+| `TVFRAME_IMAGE=tvframe` | `setup` and `update` build the server image here (about 10 minutes) instead of pulling it. |
+| `TVFRAME_APK_URL=build` | `tv` builds the app here, signed with a key made on this computer. |
 
-When the project goes public, make both the defaults in `tvframe` (`get_server` and `build_apk`), keeping the local build as the fallback.
+A computer that has already built its own app keeps building it: an Android app only updates from an app signed with the same key, so switching to the released app would mean uninstalling first.
 
-## Before going public
+## The signing key
 
-1. **Pick a license** and add `LICENSE`. The README says all rights reserved until then. MIT or Apache-2.0 suit a project like this; the models baked into the server image are MIT licensed too (YuNet, the LAION aesthetic head, and OpenAI's CLIP ViT-L/14 weights).
-2. **Make the release signing key**, once, and keep a copy somewhere safe. An app signed with a different key cannot update an installed one; users would have to uninstall first.
-   ```bash
-   keytool -genkeypair -keystore tvframe-release.jks -alias tvframe -keyalg RSA -keysize 3072 -validity 10000 -dname "CN=TV Frame"
-   ```
-3. **Add the repository secrets** (Settings > Secrets and variables > Actions): `APK_KEYSTORE_BASE64` (`base64 -i tvframe-release.jks`), `APK_KEYSTORE_PASSWORD`, `APK_KEY_ALIAS` (`tvframe`), `APK_KEY_PASSWORD`.
-4. **Check the history** for anything personal: `git log -p | grep -inE 'token|password|192\.168\.[0-9]+\.'` should only find the documentation examples (192.168.1.x).
-5. **Make it public:** Settings > General > Danger Zone > Change visibility. Then the one-line installer in the README works: `curl -fsSL https://raw.githubusercontent.com/nicglazkov/tvframe/main/install.sh | sh`.
-6. **Make the images public** after the first release: the package page on GitHub (Packages > tvframe > Package settings > Change visibility).
+Releases are signed with a 3072-bit RSA key, alias `tvframe`, valid until 2054. It lives in two places:
+
+- The repository secrets `APK_KEYSTORE_BASE64`, `APK_KEYSTORE_PASSWORD`, `APK_KEY_ALIAS` and `APK_KEY_PASSWORD` (Settings > Secrets and variables > Actions), which the Release workflow uses.
+- `android/keystore/` on the first TV Frame server, which git ignores. Keep a copy of `tvframe-local.jks` and `key.properties` somewhere safe as well, such as a password manager.
+
+If the key is ever lost, a new one works for new installs, but every existing TV has to uninstall the app before it can take an update.
 
 ## Cutting a release
 
-1. Bump `versionCode` and `versionName` in `android/app/build.gradle.kts`, and add a section to `CHANGELOG.md`.
+1. Bump `versionCode` and `versionName` in `android/app/build.gradle.kts`, and add a `## <version>` section to `CHANGELOG.md`. The release notes are taken from that section.
 2. Tag and push:
    ```bash
    git tag v0.4.0 && git push origin v0.4.0
    ```
-3. The Release workflow (`.github/workflows/release.yml`) builds the signed app and attaches it to a draft release, and pushes the server images to `ghcr.io/nicglazkov/tvframe:cu128` and `:cpu` (plus `:v0.4.0-cu128` and `:v0.4.0-cpu`).
-4. Read the draft's notes, then publish it.
+3. The Release workflow (`.github/workflows/release.yml`) builds the signed app and attaches it to a draft release as `tvframe-v0.4.0.apk` and `tvframe.apk`, and pushes the server images as `:cu128` and `:cpu` (plus `:v0.4.0-cu128` and `:v0.4.0-cpu`).
+4. Read the draft, then publish it. Only a published release counts as `latest`, which is what installs download.
 
-The CI workflow (`.github/workflows/ci.yml`) runs on every push: the Python compiles, shellcheck passes, the CPU video encoders produce the same 10-bit HEVC as NVENC, and the TV app builds. On a private repository these runs count against the account's free Actions minutes.
+## Going public
+
+Everything else is done: the MIT license, the signing key and secrets, the first release, and a history with nothing personal in it. What is left:
+
+1. **Check the history once more:** `git log -p | grep -inE 'token|password|192\.168\.[0-9]+\.'` should only find the documentation examples (192.168.1.x) and the secret names in the Release workflow.
+2. **Make the repository public:** Settings > General > Danger Zone > Change visibility. The one-line installer in the README works from then on.
+3. **Make the server image public:** Packages > tvframe > Package settings > Change visibility. Until then, installs build the server image themselves.
+4. **Try an install from scratch** on a computer that has never had TV Frame, to confirm it downloads both parts.
+
+## The CI workflow
+
+`.github/workflows/ci.yml` runs on every push: the Python compiles, shellcheck passes, the CPU video encoders produce the same 10-bit HEVC as NVENC, and the TV app builds. On a private repository these runs count against the account's free Actions minutes; on a public one they are free.
 
 ## An installer for people who never open a terminal
 
 What exists covers "I have a Linux computer and can paste a command". The next steps, in order of reach:
 
-- **A prebuilt app on a release** (above), so no Android tools are downloaded.
-- **Pulling the published server image**, so setup takes a few minutes instead of building.
 - **Windows:** a short PowerShell script that installs WSL 2 and Docker Desktop, then runs `install.sh` inside WSL.
 - **Pairing from the photo manager:** the server already runs `adb`, so the TV step could be a page in the manager (type the TV's address, approve on the TV) instead of `./tvframe tv`.

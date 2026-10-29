@@ -5,7 +5,6 @@ The TV app talks only to this bridge, never to Home Assistant, so the HA token s
 (HA_TOKEN_FILE in config.env, mode 0600). Without HA_URL the bridge still serves everything but the home states.
 
   GET  /live                   site/data/live.json plus real home states from HA and the guest Wi-Fi QR
-  GET  /mode                   always {"mode":"glance"}: Guests mode is gone (2026-10-26), kept for older apps
   GET  /status                 health text
   GET  /sonos?v=N&wait=S       what the Sonos speakers play (long-polls until it changes from version N); Quiet Home's card
   GET  /art?e=ENTITY           that speaker's album art, fetched from HA so the TV never needs a token
@@ -31,7 +30,6 @@ LA = ZoneInfo(tvconf.TZ)
 HA_URL = tvconf.HA_URL
 TOKEN = tvconf.ha_token()
 LIVE = os.path.join(tvconf.ROOT, "site", "data", "live.json")
-STATE_FILE = os.path.join(HOME, ".config", "tvframe", "bridge_state.json")
 WIFI_QR = os.path.join(HOME, ".config", "tvframe", "wifi_qr.json")   # {"ssid", "qr": rows of 0/1}, mode 0600
 # Weather codes (WMO) that mean rain, drizzle, showers or thunder.
 RAIN_CODES = set(range(51, 68)) | {80, 81, 82, 95, 96, 99}
@@ -44,7 +42,7 @@ HOME_ENTITIES = tvconf.get_json("HA_ENTITIES_JSON", None) or (lambda p: __import
 SONOS = ("music", "music2")
 
 cond = threading.Condition()
-state = {"mode": "glance", "rev": 1, "changed": None, "source": "default", "ha_ok": False, "ha_seen": None}
+state = {"ha_ok": False, "ha_seen": None}
 home = {}
 sonos = {"v": 1, "data": {"playing": False}}
 now_on = {"at": 0, "data": None}
@@ -53,23 +51,6 @@ cmds = {"seq": 0, "cmd": None, "at": 0}
 
 def log(*a):
     print(datetime.now(LA).strftime("%m-%d %H:%M:%S"), *a, flush=True)
-
-
-def save():
-    try:
-        tmp = STATE_FILE + ".tmp"
-        json.dump({"mode": state["mode"], "rev": state["rev"], "changed": state["changed"]}, open(tmp, "w"))
-        os.replace(tmp, STATE_FILE)
-    except Exception as e:
-        log("save failed", e)
-
-
-def load():
-    try:
-        s = json.load(open(STATE_FILE))
-        state.update(mode="glance", rev=int(s.get("rev", 1)), changed=s.get("changed"), source="fixed")
-    except Exception:
-        pass
 
 
 def ha(method, path, body=None):
@@ -238,23 +219,9 @@ class H(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b)
 
-    def mode_obj(self):
-        return {"mode": state["mode"], "rev": state["rev"], "changed": state["changed"],
-                "source": state["source"], "ha": state["ha_ok"]}
-
     def do_GET(self):
         path, _, q = self.path.partition("?")
         args = dict(x.split("=", 1) for x in q.split("&") if "=" in x)
-        if path == "/mode":
-            try:
-                rev, wait = int(args.get("rev", -1)), min(30.0, float(args.get("wait", 0)))
-            except ValueError:
-                rev, wait = -1, 0
-            end = time.time() + wait
-            with cond:
-                while state["rev"] == rev and time.time() < end:
-                    cond.wait(end - time.time())
-            return self.send_json(self.mode_obj())
         if path == "/live":
             try:
                 live = json.load(open(LIVE))
@@ -265,7 +232,6 @@ class H(BaseHTTPRequestHandler):
                 live["wifi"] = json.load(open(WIFI_QR))
             except Exception:
                 pass
-            live["mode"] = self.mode_obj()
             return self.send_json(live)
         if path == "/sonos":
             try:
@@ -307,7 +273,7 @@ class H(BaseHTTPRequestHandler):
                     cond.wait(end - time.time())
             return self.send_json(cmds)
         if path == "/status":
-            b = f"ok mode={state['mode']} rev={state['rev']} ha={'up' if state['ha_ok'] else 'down'}\n".encode()
+            b = f"ok ha={'up' if state['ha_ok'] else 'down'}\n".encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/plain")
             self.send_header("Content-Length", str(len(b)))
@@ -360,15 +326,14 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=8154)
     a = ap.parse_args()
-    load()
     if HA_URL and TOKEN:
         threading.Thread(target=ws_loop, daemon=True).start()
         threading.Thread(target=rest_loop, daemon=True).start()
     else:
-        log("no HA_URL or token in config.env: home states and mode switching by HA are off")
+        log("no HA_URL or token in config.env: home states are off")
     srv = Server(("0.0.0.0", a.port), H)
     srv.daemon_threads = True
-    log(f"bridge on :{a.port}, mode {state['mode']} rev {state['rev']}")
+    log(f"bridge on :{a.port}")
     srv.serve_forever()
 
 

@@ -52,19 +52,16 @@ const val DETAILS_AFTER_MS = 10_000L
 class Slide(val item: Item, val kind: String, val photo: Photo? = null, val spread: Spread? = null, val clip: Clip? = null)
 
 /**
- * Picks slides. Guests mixes full-screen photos with pairs and trios the way guests.html does;
- * Glance shows only photos that fill the screen. Weighted toward the best shots, no repeats within
- * about half the library, near-duplicates count as one.
+ * Picks slides: photos, the pairs and trios of tall photos, and clips. Weighted toward the best shots,
+ * no repeats within about half the library, near-duplicates count as one.
  */
-class Sequencer(private val prod: Prod, private val mode: String, private val singles: Boolean = false, private val rnd: Random = Random.Default) {
+class Sequencer(private val prod: Prod, private val singles: Boolean = false, private val rnd: Random = Random.Default) {
     private val shown = prod.photos.filter { it.rep }
     /** Behind the home screen: one big photo at a time, only ones that fill the screen. */
     private val big = shown.filter { !it.portrait && it.layout == "cover" }.ifEmpty { shown }
     private val recent = ArrayDeque<String>()
     private val recentClusters = ArrayDeque<Int>()
     private val mem = (shown.size * 0.55).toInt().coerceAtLeast(1)
-    private val pairsOf = HashMap<String, MutableList<Spread>>()
-    private val trioOf = HashMap<String, MutableList<Spread>>()
     private var n = 0
     private var lastWasClip = false
     private var lastClip: String? = null
@@ -84,10 +81,6 @@ class Sequencer(private val prod: Prod, private val mode: String, private val si
     private val gtrioOf = HashMap<String, MutableList<Spread>>()
 
     init {
-        for (s in prod.spreads) {
-            if (s.kind == "pair") s.members.forEach { pairsOf.getOrPut(it) { ArrayList() } += s }
-            else if (s.kind == "trio") trioOf.getOrPut(s.members[0]) { ArrayList() } += s
-        }
         for (s in prod.glanceSpreads) {
             if (s.kind == "gpair" || s.kind == "gtall") s.members.forEach { gpairsOf.getOrPut(it) { ArrayList() } += s }
             else if (s.kind == "gtrio") gtrioOf.getOrPut(s.members[0]) { ArrayList() } += s
@@ -152,31 +145,7 @@ class Sequencer(private val prod: Prod, private val mode: String, private val si
 
     fun next(): Slide? {
         if (singles) { val p = pick(big) ?: return null; n++; mark(p.id); return Slide(p.item, "full", photo = p) }
-        if (mode == ModeStore.GLANCE) return nextGlance()
-        val forced = listOf("full", "pair", "full", "trio").getOrNull(n)
-        if (clipDue()) {
-            n++; lastWasClip = true
-            val c = prod.clips[rnd.nextInt(prod.clips.size)]
-            return Slide(c.item, "video", clip = c)
-        }
-        lastWasClip = false
-        val p = when (forced) {
-            "pair" -> pick(shown.filter { it.portrait && pairsOf[it.id] != null })
-            "trio" -> pick(shown.filter { trioOf[it.id] != null })
-            "full" -> pick(shown.filter { !it.portrait && it.layout == "cover" })
-            else -> null
-        } ?: pick(shown) ?: return null
-        n++
-        if (p.portrait && (forced == "pair" || n % 5 != 0)) {
-            val sp = pairsOf[p.id]?.sortedBy { s -> s.members.count { it != p.id && it in recent } }?.firstOrNull()
-            if (sp != null) { sp.members.forEach { mark(it) }; return Slide(sp.item, "pair", spread = sp) }
-        }
-        if (!p.portrait && (forced == "trio" || (forced == null && n % 4 == 0))) {
-            val sp = trioOf[p.id]?.firstOrNull { s -> s.members.drop(1).none { it in recent } } ?: trioOf[p.id]?.firstOrNull()
-            if (sp != null) { sp.members.forEach { mark(it) }; return Slide(sp.item, "trio", spread = sp) }
-        }
-        mark(p.id)
-        return Slide(p.item, "full", photo = p)
+        return nextGlance()
     }
 }
 
@@ -203,9 +172,6 @@ class FrameView(ctx: Context, private val role: Role = Role.SHOW, private val la
 
     companion object {
         @Volatile private var precacheStarted = false
-
-        /** The show on screen right now, if any (the star button toggles it in place). */
-        @Volatile var active: FrameView? = null
     }
 
     private val prefs = Prefs(ctx)
@@ -223,7 +189,6 @@ class FrameView(ctx: Context, private val role: Role = Role.SHOW, private val la
     private var failures = 0
     private var shownCount = 0
     private val t0 = SystemClock.elapsedRealtime()
-    var mode: String = ModeStore.GLANCE; private set
     var onPhoto: ((Photo?) -> Unit)? = null
 
     private val scrim = View(ctx).apply { setBackgroundColor(Color.BLACK); alpha = 0f }
@@ -232,8 +197,6 @@ class FrameView(ctx: Context, private val role: Role = Role.SHOW, private val la
     private var clipBarAnim: android.animation.ObjectAnimator? = null
     private val scene = SceneView(ctx)
     private val textRoot = Group()
-    private val clockG = Group()
-    private var capG = Group()
     private val rowG = Group()
     private val glanceCap = TextNode("", TStyle(Fonts.Face.SANS_MEDIUM, 48f), 200f, 150f, anchorBaseline = false)
     /** Second caption line under glanceCap: day and camera for pairs and trios, empty for single photos. */
@@ -280,15 +243,12 @@ class FrameView(ctx: Context, private val role: Role = Role.SHOW, private val la
             addView(clipBar, LayoutParams(-1, 2, android.view.Gravity.BOTTOM))
             addView(details, LayoutParams(-1, -1))
             scene.root.add(textRoot)
-            textRoot.add(rowG); textRoot.add(clockG)
+            textRoot.add(rowG)
         }
     }
 
     fun start() {
-        if (role == Role.SHOW) {
-            active = this
-            Live.cached(context)
-        }
+        if (role == Role.SHOW) Live.cached(context)
         net.execute {
             val p = Prod.load(context, prefs.prodUrl)
             if (role == Role.SHOW) Live.refresh(context)
@@ -303,15 +263,15 @@ class FrameView(ctx: Context, private val role: Role = Role.SHOW, private val la
             return
         }
         prod = p
-        val fade = if (mode == ModeStore.GUESTS) p.fadeGuests else p.fadeGlance
+        val fade = p.fadeGlance
         val any = p.photos.first().item
         val r: Renderer = if (StillCodec.pick(prefs.codec, any) != null) PlaneRenderer(context, io, main, fade, prefs.codec) { veilFile(it) }
             else BitmapRenderer(context, io, main, false, { (p.photoSeconds * 1000).toLong() }, fade)
         renderer = r
         addView(r.root, 0, LayoutParams(-1, -1))
         scene.glow = Glow(p.tune.glow, p.tune.glowSize)
-        seq = Sequencer(p, mode, singles = role == Role.HOME_BG)
-        Log.i(TAG, "[$label] start role=$role mode=$mode path=${r.path} photos=${p.photos.size} spreads=${p.spreads.size} " +
+        seq = Sequencer(p, singles = role == Role.HOME_BG)
+        Log.i(TAG, "[$label] start role=$role path=${r.path} photos=${p.photos.size} spreads=${p.glanceSpreads.size} " +
             "fonts=${Fonts.loaded} startup=${SystemClock.elapsedRealtime() - t0}ms")
         if (role == Role.SHOW) {
             buildChrome()
@@ -420,7 +380,7 @@ class FrameView(ctx: Context, private val role: Role = Role.SHOW, private val la
         if (stopped) return
         failures = 0
         shownCount++
-        Log.i(TAG, "[$label] shown #$shownCount mode=$mode ${current?.kind} ${item.id} $stats")
+        Log.i(TAG, "[$label] shown #$shownCount ${current?.kind} ${item.id} $stats")
         if (shownCount == 1 && !precacheStarted) { precacheStarted = true; startPrecache() }
         val sq = seq ?: return
         next = sq.next()?.also { nextFile = prefetch(it) }
@@ -473,18 +433,8 @@ class FrameView(ctx: Context, private val role: Role = Role.SHOW, private val la
         main.postDelayed(advanceRunnable, if (failures > 5) 10_000L else 300L)
     }
 
-    private fun switchMode(m: String) {
-        val p = prod ?: run { mode = m; return }
-        mode = m
-        (renderer as? PlaneRenderer)?.transitionMs = if (m == ModeStore.GUESTS) p.fadeGuests else p.fadeGlance
-        seq = Sequencer(p, m, singles = role == Role.HOME_BG)
-        next = null; nextFile = null
-        buildChrome()
-        advance()
-    }
-
     // ---------------------------------------------------------------------------------------------
-    // offline cache: every still for both modes, fetched slowly in the background
+    // offline cache: every still, fetched slowly in the background
 
     private fun startPrecache() {
         val p = prod ?: return
@@ -505,106 +455,58 @@ class FrameView(ctx: Context, private val role: Role = Role.SHOW, private val la
     }
 
     // ---------------------------------------------------------------------------------------------
-    // text: guests
-
-    private fun corner() = TStyle(Fonts.Face.SANS_MEDIUM, tune.cap)
+    // text
 
     private fun buildChrome() {
-        clockG.clear(); rowG.clear()
-        capG.alpha = 0f
-        if (mode == ModeStore.GUESTS) {
-            setNight(false, animate = false)
-            clockG.add(TextNode(fmtClock(laNow()), TStyle(Fonts.Face.SANS, tune.cclock), 3840f - tune.side * 0.46f, 2160f - tune.bottom, alignRight = true))
-        } else {
-            buildGlanceRow()
-            rowG.add(glanceCapG)
-            glanceCapG.alpha = 0f
-        }
+        rowG.clear()
+        buildGlanceRow()
+        rowG.add(glanceCapG)
+        glanceCapG.alpha = 0f
         current?.let { showText(it) }
         scene.invalidate()
-    }
-
-    private fun guestBlock(g: Group, b: Block) {
-        val s = scene.scale
-        var y = b.y
-        for (l in b.lines) {
-            when (l.style) {
-                "t" -> { val n = ParaNode(l.text, TStyle(Fonts.Face.SANS, 64f, lineHeight = 1.12f), b.x, y, b.w, maxLines = 2); g.add(n); y += n.height(s, scene.glow) }
-                "s" -> { val st = TStyle(Fonts.Face.TEXT, 42f, withAlpha(INK, .8f)); y += 14f; g.add(TextNode(l.text, st, b.x, y, anchorBaseline = false, maxW = b.w)); y += lh(st) }
-                else -> { val st = TStyle(Fonts.Face.TEXT, 38f, withAlpha(INK, .62f), tracking = .015f); y += 8f; g.add(TextNode(l.text, st, b.x, y, anchorBaseline = false, maxW = b.w)); y += lh(st) }
-            }
-        }
     }
 
     private fun lh(st: TStyle): Float { val s = scene.scale; val p = paintFor(st, s, scene.glow); return lineBox(p, st, s).second / s }
 
     private fun showText(s: Slide) {
-        if (mode == ModeStore.GUESTS) {
-            val old = capG
-            scene.fade(old, 0f, (prod?.fadeGuests ?: 2200)) { textRoot.kids.remove(old) }
-            val g = Group().apply { alpha = 0f }
-            val cap = s.photo?.caption ?: s.clip?.caption
-            val band = s.photo?.band
-            val clock = clockG.kids.firstOrNull() as? TextNode
-            if (s.spread != null) {
-                s.spread.blocks.forEach { guestBlock(g, it) }
-                clock?.apply { x = 3840f - tune.side * 0.46f; y = 2160f - tune.bottom }
-            } else if (cap != null && band != null) {
-                // a tall photo with a wide side band: the caption sits in the band
-                val st = corner()
-                val n = ParaNode(cap.oneLine(), st, 200f, 0f, band, maxLines = 3, balance = false)
-                val p = paintFor(st, scene.scale, scene.glow)
-                val (base, lhPx) = lineBox(p, st, scene.scale)
-                n.y = 2160f - 104f - n.height(scene.scale, scene.glow) + (lhPx - base) / scene.scale
-                g.add(n)
-                clock?.apply { x = 3840f - 200f; y = 2160f - 104f }
-            } else if (cap != null) {
-                g.add(TextNode(cap.oneLine(), corner(), tune.side, 2160f - tune.bottom, maxW = 3840f - tune.side - 700f))
-                clock?.apply { x = 3840f - tune.side * 0.46f; y = 2160f - tune.bottom }
+        // pairs and trios: places on the first line, day and camera on the second
+        val cols = s.spread?.labels.orEmpty()
+        val two = s.spread?.takeIf { it.head.isNotEmpty() && cols.isEmpty() }
+        // clips: where and when, then camera and rough settings
+        val clipLines = s.clip?.caption?.clipLines()
+        val cap = if (cols.isNotEmpty()) "" else two?.head ?: s.photo?.caption?.oneLine() ?: s.spread?.line ?: clipLines?.first
+        val newSub = two?.sub ?: clipLines?.second ?: ""
+        val same = cols.isEmpty() && glanceCols.kids.isEmpty() && cap.orEmpty() == glanceCap.text && newSub == glanceSub.text
+        if (same && glanceCap.text.isNotEmpty()) return     // same words on the next slide: leave them be
+        // the old words leave during the first ~40% of the photo crossfade and the new ones arrive over the rest,
+        // on the same ease, so text and picture change together
+        val t = fadeMs()
+        val out = (t * 0.4f).toLong()
+        capAnim?.cancel()
+        capAnim = scene.fade(glanceCapG, 0f, out, ease = EASE_XFADE)
+        main.removeCallbacks(capSwap)
+        capSwap = Runnable {
+            if (stopped || current !== s) return@Runnable
+            glanceCap.text = cap ?: ""
+            glanceCap.style = TStyle(Fonts.Face.SANS_MEDIUM, tune.cap)
+            glanceCap.maxW = 3440f
+            glanceSub.text = newSub
+            glanceSub.style = TStyle(Fonts.Face.SANS, tune.cap * 0.88f, withAlpha(INK, .82f))
+            glanceSub.y = glanceCap.y + lh(glanceCap.style) + 4f
+            glanceSub.maxW = 3440f
+            // different places: each column says where its photo is, at the same height as the shared caption
+            glanceCols.kids.clear()
+            for (c in cols) {
+                val h = TextNode(c.head, glanceCap.style, c.x, glanceCap.y, anchorBaseline = false, maxW = c.w)
+                glanceCols.add(h)
+                if (c.sub.isNotEmpty()) glanceCols.add(TextNode(c.sub, glanceSub.style, c.x, glanceSub.y, anchorBaseline = false, maxW = c.w))
             }
-            textRoot.kids.add(0, g)
-            capG = g
-            scene.fade(g, 1f, 1400, delay = 900, ease = EASE_CALM)
-        } else {
-            // pairs and trios: places on the first line, day and camera on the second
-            val cols = s.spread?.labels.orEmpty()
-            val two = s.spread?.takeIf { it.head.isNotEmpty() && cols.isEmpty() }
-            // clips: where and when, then camera and rough settings
-            val clipLines = s.clip?.caption?.clipLines()
-            val cap = if (cols.isNotEmpty()) "" else two?.head ?: s.photo?.caption?.oneLine() ?: s.spread?.line ?: clipLines?.first
-            val newSub = two?.sub ?: clipLines?.second ?: ""
-            val same = cols.isEmpty() && glanceCols.kids.isEmpty() && cap.orEmpty() == glanceCap.text && newSub == glanceSub.text
-            if (same && glanceCap.text.isNotEmpty()) return     // same words on the next slide: leave them be
-            // the old words leave during the first ~40% of the photo crossfade and the new ones arrive over the rest,
-            // on the same ease, so text and picture change together
-            val t = fadeMs()
-            val out = (t * 0.4f).toLong()
-            capAnim?.cancel()
-            capAnim = scene.fade(glanceCapG, 0f, out, ease = EASE_XFADE)
-            main.removeCallbacks(capSwap)
-            capSwap = Runnable {
-                if (stopped || current !== s) return@Runnable
-                glanceCap.text = cap ?: ""
-                glanceCap.style = TStyle(Fonts.Face.SANS_MEDIUM, tune.cap)
-                glanceCap.maxW = 3440f
-                glanceSub.text = newSub
-                glanceSub.style = TStyle(Fonts.Face.SANS, tune.cap * 0.88f, withAlpha(INK, .82f))
-                glanceSub.y = glanceCap.y + lh(glanceCap.style) + 4f
-                glanceSub.maxW = 3440f
-                // different places: each column says where its photo is, at the same height as the shared caption
-                glanceCols.kids.clear()
-                for (c in cols) {
-                    val h = TextNode(c.head, glanceCap.style, c.x, glanceCap.y, anchorBaseline = false, maxW = c.w)
-                    glanceCols.add(h)
-                    if (c.sub.isNotEmpty()) glanceCols.add(TextNode(c.sub, glanceSub.style, c.x, glanceSub.y, anchorBaseline = false, maxW = c.w))
-                }
-                if (!night && (glanceCap.text.isNotEmpty() || glanceCols.kids.isNotEmpty())) {
-                    capAnim?.cancel()
-                    capAnim = scene.fade(glanceCapG, 1f, (t - out).coerceAtLeast(600L), ease = EASE_XFADE)
-                }
+            if (!night && (glanceCap.text.isNotEmpty() || glanceCols.kids.isNotEmpty())) {
+                capAnim?.cancel()
+                capAnim = scene.fade(glanceCapG, 1f, (t - out).coerceAtLeast(600L), ease = EASE_XFADE)
             }
-            main.postDelayed(capSwap, out + 16)
         }
+        main.postDelayed(capSwap, out + 16)
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -890,19 +792,14 @@ class FrameView(ctx: Context, private val role: Role = Role.SHOW, private val la
     }
 
     private fun rotateTile() {
-        if (mode != ModeStore.GLANCE || night) return
+        if (night) return
         tileIx++
         if (tiles[tileIx % tiles.size] == "news") newsIx++
         buildGlanceRow(animate = true)      // the old tile dissolves into the new one
     }
 
     private fun tickInfo() {
-        val n = laNow()
-        if (mode == ModeStore.GUESTS) {
-            (clockG.kids.firstOrNull() as? TextNode)?.text = fmtClock(n)
-        } else {
-            buildGlanceRow(animate = true)
-        }
+        buildGlanceRow(animate = true)
         scene.invalidate()
     }
 
@@ -910,14 +807,12 @@ class FrameView(ctx: Context, private val role: Role = Role.SHOW, private val la
         night = on
         val dim = if (on) .7f else 0f
         if (animate) scrim.animate().alpha(dim).setDuration(3000).setInterpolator(EASE_SOFT).start() else scrim.alpha = dim
-        if (mode == ModeStore.GLANCE) {
-            for (g in listOf(wifiG, weatherG, homeG, swapG)) if (animate) scene.fade(g, if (on) 0f else 1f, 2000) else g.alpha = if (on) 0f else 1f
-            if (on) scene.fade(glanceCapG, 0f, 2000) else if (glanceCap.text.isNotEmpty()) scene.fade(glanceCapG, 1f, 2000)
-        }
+        for (g in listOf(wifiG, weatherG, homeG, swapG)) if (animate) scene.fade(g, if (on) 0f else 1f, 2000) else g.alpha = if (on) 0f else 1f
+        if (on) scene.fade(glanceCapG, 0f, 2000) else if (glanceCap.text.isNotEmpty()) scene.fade(glanceCapG, 1f, 2000)
     }
 
     private fun refreshLive() {
-        net.execute { Live.refresh(context); main.post { if (!stopped && mode == ModeStore.GLANCE) { buildGlanceRow(animate = true); scene.invalidate() } } }
+        net.execute { Live.refresh(context); main.post { if (!stopped) { buildGlanceRow(animate = true); scene.invalidate() } } }
     }
 
     private fun refreshProd() {
@@ -926,15 +821,15 @@ class FrameView(ctx: Context, private val role: Role = Role.SHOW, private val la
             main.post {
                 if (stopped || p.photos.isEmpty()) return@post
                 prod = p
-                seq = Sequencer(p, mode, singles = role == Role.HOME_BG)
-                Log.i(TAG, "[$label] prod.json refreshed: ${p.photos.size} photos, ${p.spreads.size} spreads")
+                seq = Sequencer(p, singles = role == Role.HOME_BG)
+                Log.i(TAG, "[$label] prod.json refreshed: ${p.photos.size} photos, ${p.glanceSpreads.size} spreads")
             }
         }
     }
 
     private fun burnIn() {
         val r = Random.Default
-        val px = if (mode == ModeStore.GLANCE) 12f else 10f
+        val px = 12f
         val tx = (r.nextFloat() * 2 - 1) * px; val ty = (r.nextFloat() * 2 - 1) * px
         val x0 = textRoot.dx; val y0 = textRoot.dy
         android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
@@ -1093,9 +988,6 @@ class FrameView(ctx: Context, private val role: Role = Role.SHOW, private val la
         details?.close(scene, instant = true)
         clipBarAnim?.cancel()
         mapIo.shutdownNow(); ctl.shutdown()
-        if (role == Role.SHOW) {
-            if (active === this) active = null
-        }
         main.removeCallbacksAndMessages(null)
         renderer?.release()
         net.shutdownNow()

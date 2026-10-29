@@ -135,8 +135,14 @@ wait_up() {
   return 1
 }
 
-get_server() {   # a published image when .env names one (TVFRAME_IMAGE), else build it here
-  if grep -q '^TVFRAME_IMAGE=' .env 2>/dev/null; then dc pull tvframe </dev/null; else dc build tvframe </dev/null; fi
+RELEASES=https://github.com/nicglazkov/tvframe/releases/latest/download
+
+get_server() {   # the published image (compose.yaml), or a build here when there is none or .env says TVFRAME_IMAGE=tvframe
+  if [ "$(sed -n 's/^TVFRAME_IMAGE=//p' .env 2>/dev/null | tail -1)" != tvframe ]; then
+    dc pull -q tvframe </dev/null 2>/dev/null && { ok "downloaded the server image"; return; }
+    note "No published server image to download, so it is built here instead (about 10 minutes)."
+  fi
+  dc build tvframe </dev/null
 }
 
 # ------------------------------------------------------------------------------------------------ setup
@@ -182,7 +188,7 @@ cmd_setup() {
   setenv TVFRAME_TZ "$(getconf TVFRAME_TZ)"; setenv TVFRAME_LIBRARY "$library"; setenv TVFRAME_CONFIG_DIR "$CONF_DIR"
   mkdir -p .home/.config/tvframe
 
-  step "Building the server"
+  step "Getting the server"
   note "The first time downloads about $(grep -q '^TVFRAME_TORCH=cpu' .env && echo 2 || echo 7) GB and takes a few minutes."
   get_server
   dc up -d </dev/null
@@ -238,12 +244,15 @@ tv_connect() {   # leaves TV set to a connected, allowed adb address
 build_apk() {
   local host tz url
   host="$(getconf TVFRAME_HOST)"; tz="$(getconf TVFRAME_TZ)"
-  url="$(sed -n 's/^TVFRAME_APK_URL=//p' .env 2>/dev/null | tail -1)"
-  if [ -n "$url" ]; then                  # a released app: the same for everyone, pointed at this server after it is installed
+  url="$(sed -n 's/^TVFRAME_APK_URL=//p' .env 2>/dev/null | tail -1)"; url="${url:-$RELEASES/tvframe.apk}"
+  # The released app: the same for everyone, pointed at this server after it is installed. Not when this computer
+  # already built and signed one with its own key (an app only updates from the same key), or TVFRAME_APK_URL=build.
+  if [ "$url" != build ] && [ ! -f android/keystore/tvframe-local.jks ]; then
     mkdir -p android/app/build/outputs/apk/release
-    curl -fsSL -o android/app/build/outputs/apk/release/app-release.apk "$url" || die "Could not download $url"
-    ok "downloaded $(basename "$url")"
-    return
+    if curl -fsSL -o android/app/build/outputs/apk/release/app-release.apk "$url" 2>/dev/null; then
+      ok "downloaded the TV app"; return
+    fi
+    note "No released app to download, so it is built here instead."
   fi
   docker image inspect tvframe-android >/dev/null 2>&1 || { note "Getting the Android build tools (once, about 1.5 GB)"; docker build -q -t tvframe-android android >/dev/null; }
   mkdir -p .home

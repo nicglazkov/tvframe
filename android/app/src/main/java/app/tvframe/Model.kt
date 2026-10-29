@@ -39,15 +39,10 @@ class Prefs(ctx: Context) {
         get() = sp.getString("prod_url", DEFAULT_PROD) ?: DEFAULT_PROD
         set(v) = sp.edit().putString("prod_url", v.trim()).apply()
 
-    /** The mode bridge on the server, which relays Home Assistant's input_select.tv_frame_mode. */
+    /** The bridge on the server: live data for Glance, Now on TV, and the photo manager's commands. */
     var bridgeUrl: String
         get() = sp.getString("bridge_url", DEFAULT_BRIDGE) ?: DEFAULT_BRIDGE
         set(v) = sp.edit().putString("bridge_url", v.trim()).apply()
-
-    /** Last known show mode, "glance" or "guests", kept for when the bridge is unreachable. */
-    var frameMode: String
-        get() = sp.getString("frame_mode", "glance") ?: "glance"
-        set(v) = sp.edit().putString("frame_mode", v).apply()
 
     /** Testing only: a second key code the star service also acts on (0 = none). */
 

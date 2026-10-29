@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0
+
+The first public release.
+
+- **Downloads instead of builds.** `./tvframe setup` downloads the server image and `./tvframe tv` the signed TV app, so a new install takes minutes. Both still build on your computer when there is nothing to download, or with `TVFRAME_IMAGE=tvframe` and `TVFRAME_APK_URL=build` in `.env`.
+- **MIT license.**
+- Guests mode, which the TV stopped using in October, is gone from the app and the server. Glance is the only screen. The bridge no longer serves `/mode`.
+
 ## 0.3.10
 
 - The quiet home screen shows every TV app you have installed: well-known ones first with their own colors, the rest by name. The app list no longer comes from one household.

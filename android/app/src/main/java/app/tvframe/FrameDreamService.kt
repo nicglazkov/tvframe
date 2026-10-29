@@ -4,7 +4,7 @@ import android.service.dreams.DreamService
 import android.util.Log
 import android.view.KeyEvent
 
-/** The screensaver: the frame in whichever mode Home Assistant (or the star button) last chose. */
+/** The screensaver: Glance. */
 class FrameDreamService : DreamService() {
     private var show: FrameView? = null
 
@@ -29,7 +29,7 @@ class FrameDreamService : DreamService() {
 
     override fun onDreamingStarted() {
         super.onDreamingStarted()
-        Log.i(TAG, "dream started, mode ${ModeStore.mode}")
+        Log.i(TAG, "dream started")
         show?.start()
     }
 

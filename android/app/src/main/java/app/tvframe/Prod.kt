@@ -1,8 +1,6 @@
 package app.tvframe
 
 import android.content.Context
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
@@ -47,8 +45,6 @@ data class Caption(val place: String, val whenText: String, val camera: String,
     }
 }
 
-data class Line(val style: String, val text: String)
-data class Block(val x: Float, val y: Float, val w: Float, val lines: List<Line>)
 
 data class Photo(
     val id: String, val layout: String, val portrait: Boolean, val weight: Double, val cluster: Int?, val rep: Boolean,
@@ -65,7 +61,7 @@ data class Photo(
     val item by lazy { Item(id, "photo", url, hevc, null, weight.coerceAtLeast(0.05), cluster, .5f, .5f, layout, 0.0, null, hevc8) }
 }
 
-data class Spread(val id: String, val kind: String, val members: List<String>, val blocks: List<Block>, val weight: Double,
+data class Spread(val id: String, val kind: String, val members: List<String>, val weight: Double,
                   val url: String, val hevc: String, val hevc8: String?, val line: String = "",
                   /** Glance spreads: the caption on two lines (places, then day and camera). */
                   val head: String = "", val sub: String = "",
@@ -90,10 +86,10 @@ data class Clip(val id: String, val url: String, val url8: String?, val duration
     val item by lazy { Item(id, "video", url, null, null, 1.0, null, .5f, .5f, "cover", duration, null, null, url8, poster, showS?.let { (it * 1000).toLong() }) }
 }
 
-/** prod.json from the frame server (server/prod_build.py): everything both modes show. */
+/** prod.json from the frame server (server/prod_build.py): everything the TV shows. */
 data class Prod(
-    val photoSeconds: Double, val fadeGuests: Long, val fadeGlance: Long, val tune: Tune,
-    val photos: List<Photo>, val spreads: List<Spread>, val clips: List<Clip>,
+    val photoSeconds: Double, val fadeGlance: Long, val tune: Tune,
+    val photos: List<Photo>, val clips: List<Clip>,
     /** Pairs and trios laid out for glance: photos above the clock and tile row (prod_build.py glance_pair/trio). */
     val glanceSpreads: List<Spread> = emptyList(),
     /** Clips per 100 slides, from the manager's Photos and clips slider (prod.json clip_share). */
@@ -102,7 +98,7 @@ data class Prod(
     val byId = photos.associateBy { it.id }
 
     /** Every still the TV may need, for the offline cache. */
-    fun allStills(): List<Item> = photos.map { it.item } + spreads.map { it.item } + glanceSpreads.map { it.item }
+    fun allStills(): List<Item> = photos.map { it.item } + glanceSpreads.map { it.item }
 
     companion object {
         private fun abs(base: String, u: String?): String? = u?.takeIf { it.isNotEmpty() && it != "null" }?.let { URL(URL(base), it).toString() }
@@ -118,26 +114,21 @@ data class Prod(
                     j.optJSONArray("rect")?.floats(), abs(base, j.optString("map")), j.optDouble("shade", 0.0).toFloat().coerceIn(0f, 1f))
             }
             fun spreads(key: String) = o.optJSONArray(key).objs().map { j ->
-                Spread(j.getString("id"), j.getString("kind"), j.getJSONArray("members").strings(),
-                    j.getJSONArray("blocks").objs().map { b ->
-                        Block(b.getDouble("x").toFloat(), b.getDouble("y").toFloat(), b.getDouble("w").toFloat(),
-                            b.getJSONArray("lines").objs().map { Line(it.getString("style"), it.getString("text")) })
-                    }, j.optDouble("weight", 50.0), abs(base, j.getString("url"))!!, abs(base, j.getString("hevc"))!!, abs(base, j.optString("hevc8")),
+                Spread(j.getString("id"), j.getString("kind"), j.getJSONArray("members").strings(), j.optDouble("weight", 50.0), abs(base, j.getString("url"))!!, abs(base, j.getString("hevc"))!!, abs(base, j.optString("hevc8")),
                     j.optString("line"), j.optString("head"), j.optString("sub"),
                     j.optJSONArray("labels").objs().map { l ->
                         ColLabel(l.getDouble("x").toFloat(), l.getDouble("w").toFloat(), l.optString("head"), l.optString("sub"))
                     },
                     j.optJSONArray("cells").let { c -> if (c == null) emptyList() else (0 until c.length()).mapNotNull { c.optJSONArray(it)?.floats() } })
             }
-            val spreads = spreads("spreads")
             val clips = o.optJSONArray("videos").objs().map { j ->
                 Clip(j.getString("id"), abs(base, j.getString("url"))!!, abs(base, j.optString("url8")), j.optDouble("duration", 15.0), Caption.parse(j.optJSONObject("caption")),
                     abs(base, j.optString("map")), j.optJSONArray("rect")?.floats(),
                     j.optDouble("weight").takeIf { !it.isNaN() && it > 0 }, abs(base, j.optString("poster")),
                     j.optDouble("show_s").takeIf { !it.isNaN() && it > 0 })
             }
-            return Prod(o.optDouble("photo_seconds", 60.0), fades?.optLong("guests", 2200) ?: 2200, fades?.optLong("glance", 2400) ?: 2400,
-                Tune.parse(o.optJSONObject("tune")), photos, spreads, clips, spreads("glance_spreads"), o.optDouble("clip_share", 11.0))
+            return Prod(o.optDouble("photo_seconds", 60.0), fades?.optLong("glance", 2400) ?: 2400,
+                Tune.parse(o.optJSONObject("tune")), photos, clips, spreads("glance_spreads"), o.optDouble("clip_share", 11.0))
         }
 
         /** Network first, then the last copy that worked, so the TV keeps going when the server is down. */
@@ -183,101 +174,5 @@ object Live {
             Log.w(TAG, "live fetch failed: $e")
         }
         return cached(ctx)
-    }
-}
-
-/**
- * The one mode switch: "glance" or "guests". Home Assistant (input_select.tv_frame_mode) is the source
- * of truth; the bridge on the server relays it. Shows long-poll the bridge while they are on screen;
- * the star button sets it through the bridge. Offline, the last mode is kept and the star still works.
- */
-object ModeStore {
-    const val GLANCE = "glance"
-    const val GUESTS = "guests"
-    private lateinit var app: Context
-    private val main = Handler(Looper.getMainLooper())
-    @Volatile var mode = GLANCE; private set
-    @Volatile private var rev = -1
-    private val listeners = ArrayList<(String) -> Unit>()
-    private var watchers = 0
-    private var poller: Thread? = null
-
-    fun init(ctx: Context) {
-        app = ctx.applicationContext
-        mode = Prefs(app).frameMode
-    }
-
-    fun addListener(l: (String) -> Unit) { listeners += l }
-    fun removeListener(l: (String) -> Unit) { listeners -= l }
-
-    private fun apply(m: String, r: Int?, why: String) {
-        if (r != null) rev = r
-        if (m != GLANCE && m != GUESTS || m == mode) return
-        mode = m
-        Prefs(app).frameMode = m
-        Log.i(TAG, "mode -> $m ($why)")
-        main.post { listeners.toList().forEach { it(m) } }
-    }
-
-    /** Set the mode here at once, then tell the bridge (and through it Home Assistant). */
-    fun set(m: String, why: String) {
-        apply(m, null, why)
-        Thread {
-            try {
-                val c = Http.open(Prefs(app).bridgeUrl.trimEnd('/') + "/mode")
-                c.requestMethod = "POST"
-                c.doOutput = true
-                c.setRequestProperty("Content-Type", "application/json")
-                c.outputStream.use { it.write("""{"mode":"$m","source":"$why"}""".toByteArray()) }
-                val o = JSONObject(c.inputStream.bufferedReader().readText())
-                c.disconnect()
-                rev = o.optInt("rev", rev)
-            } catch (e: Exception) {
-                Log.w(TAG, "bridge unreachable, mode kept on the TV only: $e")
-            }
-        }.start()
-    }
-
-    /** Blocking, short: pick up a change made in Home Assistant while no show was running. */
-    fun syncNow() {
-        try {
-            val c = Http.open(Prefs(app).bridgeUrl.trimEnd('/') + "/mode").apply { connectTimeout = 1500; readTimeout = 2500 }
-            val o = JSONObject(c.inputStream.bufferedReader().readText())
-            c.disconnect()
-            apply(o.optString("mode"), o.optInt("rev", rev), "home assistant")
-        } catch (e: Exception) {
-            Log.w(TAG, "mode sync failed, keeping $mode: $e")
-        }
-    }
-
-    fun toggle(why: String) = set(if (mode == GUESTS) GLANCE else GUESTS, why)
-
-    /** Long-poll the bridge while at least one show is on screen. */
-    fun watch() {
-        watchers++
-        if (poller != null) return
-        val t = Thread {
-            while (!Thread.currentThread().isInterrupted) {
-                try {
-                    val c = Http.open(Prefs(app).bridgeUrl.trimEnd('/') + "/mode?rev=$rev&wait=25").apply { readTimeout = 40_000 }
-                    val o = JSONObject(c.inputStream.bufferedReader().readText())
-                    c.disconnect()
-                    apply(o.optString("mode"), o.optInt("rev", rev), "home assistant")
-                } catch (e: InterruptedException) {
-                    break
-                } catch (e: Exception) {
-                    try { Thread.sleep(15_000) } catch (ie: InterruptedException) { break }
-                }
-            }
-        }
-        t.isDaemon = true
-        t.name = "tvframe-mode"
-        poller = t
-        t.start()
-    }
-
-    fun unwatch() {
-        watchers = (watchers - 1).coerceAtLeast(0)
-        if (watchers == 0) { poller?.interrupt(); poller = null }
     }
 }

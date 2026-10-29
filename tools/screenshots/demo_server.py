@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Serve a demo library (make_demo.py) and a stand-in bridge with made-up weather, for screenshots.
 
-    python3 demo_server.py <demo-dir> [--mode glance|guests] [--port-base 9150]
+    python3 demo_server.py <demo-dir> [--port-base 9150]
 
-Listens on port-base+1 (prod.json and media, like serve.py) and port-base+4 (the bridge: /mode, /live, /now,
+Listens on port-base+1 (prod.json and media, like serve.py) and port-base+4 (the bridge: /live, /now,
 /cmd, /sonos). Point the app at it with adb reverse: tcp:8151 -> tcp:9151 and tcp:8154 -> tcp:9154, and build
 the app with -Ptvframe.server=http://127.0.0.1. Nothing here talks to Home Assistant or the internet."""
 import json, os, sys, threading, time
@@ -11,8 +11,6 @@ from datetime import datetime, timedelta
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 DEMO = os.path.abspath(sys.argv[1])
-MODE = sys.argv[sys.argv.index("--mode") + 1] if "--mode" in sys.argv else "glance"
-REV = 2 if MODE == "guests" else 1     # the app only switches when rev changes
 BASE = int(sys.argv[sys.argv.index("--port-base") + 1]) if "--port-base" in sys.argv else 9150
 
 
@@ -35,8 +33,7 @@ def live():
             "Botanical garden opens its new desert wing this weekend",
             "Night sky viewing at the observatory returns for the fall",
             "Farmers market adds a second weekday morning")]},
-        "home": {"rows": [["Inside", "71°, 44% humidity"], ["Outside", "64°"]], "ok": True},
-        "mode": {"mode": MODE, "rev": REV, "ha": True}}
+        "home": {"rows": [["Inside", "71°, 44% humidity"], ["Outside", "64°"]], "ok": True}}
 
 
 class Media(SimpleHTTPRequestHandler):
@@ -65,10 +62,6 @@ class Bridge(SimpleHTTPRequestHandler):
     def do_GET(self):
         path, _, q = self.path.partition("?")
         args = dict(x.split("=", 1) for x in q.split("&") if "=" in x)
-        if path == "/mode":
-            if args.get("rev") == str(REV):
-                time.sleep(min(25.0, float(args.get("wait", 0))))
-            return self.send_json({"mode": MODE, "rev": REV, "source": "demo", "ha": True})
         if path == "/live":
             return self.send_json(live())
         if path in ("/cmd", "/sonos"):
@@ -89,5 +82,5 @@ class Bridge(SimpleHTTPRequestHandler):
 if __name__ == "__main__":
     for port, h in ((BASE + 1, Media), (BASE + 4, Bridge)):
         threading.Thread(target=ThreadingHTTPServer(("127.0.0.1", port), h).serve_forever, daemon=True).start()
-    print(f"demo on 127.0.0.1:{BASE + 1} (media) and :{BASE + 4} (bridge), mode {MODE}", flush=True)
+    print(f"demo on 127.0.0.1:{BASE + 1} (media) and :{BASE + 4} (bridge)", flush=True)
     threading.Event().wait()

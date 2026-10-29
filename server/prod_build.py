@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
-"""Build the production TV playlist (prod.json) for the two app modes.
+"""Build the TV playlist (prod.json) for Glance.
 
-Guests: full-screen photos (the existing 4K frames in cache-real/frames, cover or on their blurred
-backdrop with the 1.2% gap) mixed with pairs of tall photos and trios from one trip, the same
-layouts as site/assets/js/pairs.js. Spreads are composed here at 3840x2160 and encoded as one-frame
-HEVC stills, so the TV only decodes and crossfades. All text is drawn by the app on the UI plane,
+Photos use the 4K frames in cache-real/frames. Tall photos also come as pairs and threes, and a wide photo
+now and then leads a trio from the same trip: these spreads are composed here at 3840x2160 and encoded as
+one-frame HEVC stills, so the TV only decodes and crossfades. All text is drawn by the app on the UI plane,
 so the frames carry no text; this file tells the app what to write and where (4K pixels).
-Glance: only photos that fill the screen.
 
   python3 prod_build.py [--force]     writes cache-real/prod/ and cache-real/prod/prod.json
 """
@@ -259,60 +257,6 @@ def cams(ps):
     return " and ".join(out)
 
 
-def block(x, y, w, t, s, c):
-    lines = [l for l in [("t", t), ("s", s), ("c", c)] if l[1]]
-    return {"x": x, "y": y, "w": w, "lines": [{"style": st, "text": tx} for st, tx in lines]}
-
-
-def pair_spread(a, b):
-    hh, gut, top = 1500, 88, 180
-    w1, w2 = round(hh * a["aspect"]), round(hh * b["aspect"])
-    total = w1 + w2 + gut
-    x0 = round((W - total) / 2)
-    ia, ib = src(a), src(b)
-    bg = prepare.backdrop(ia, W, H)
-    cells = [(x0, top, w1, hh), (x0 + w1 + gut, top, w2, hh)]
-    bg = shadowed(bg, cells)
-    bg.paste(fit_cover(ia, w1, hh, a["focal"]), (x0, top))
-    bg.paste(fit_cover(ib, w2, hh, b["focal"]), (x0 + w1 + gut, top))
-    ct = top + hh + 70
-    if a["place"] == b["place"] and a["date"] == b["date"]:
-        caps = [block(x0, ct, total, a["place"], photoset.fmt_date(a["date"]), cams([a, b]))]
-    else:
-        pa, pb = parts(a), parts(b)
-        caps = [block(x0, ct, w1, pa["place"], pa["when"], pa["camera"]),
-                block(x0 + w1 + gut, ct, w2, pb["place"], pb["when"], pb["camera"])]
-    return bg, caps
-
-
-def trio_spread(a, b, c, chapters):
-    m, top, gut, hh, bigW = 200, 170, 56, 1500, 2300
-    sideW = W - 2 * m - gut - bigW
-    half = (hh - gut) // 2
-    ia = src(a)
-    bg = prepare.backdrop(ia, W, H)
-    cells = [(m, top, bigW, hh), (m + bigW + gut, top, sideW, half), (m + bigW + gut, top + half + gut, sideW, half)]
-    bg = shadowed(bg, cells)
-    for (x, y, w, h), p, im in zip(cells, [a, b, c], [ia, src(b), src(c)]):
-        bg.paste(fit_cover(im, w, h, p["focal"]), (x, y))
-    ch = chapters.get(a["chapter"])
-    places = []
-    for p in (a, b, c):
-        if p["place"] and p["place"] not in places:
-            places.append(p["place"])
-    head = ch["title"] if ch else (places[0] if places else "")
-    rest = ", ".join(x for x in places if x != head)
-    sub = " · ".join(x for x in [(ch or {}).get("when") or photoset.fmt_date(a["date"]), rest] if x)
-    return bg, [block(m, top + hh + 70, bigW + gut + sideW, head, sub, cams([a, b, c]))]
-
-
-# Glance: photos that do not fill the screen sit as pairs or trios on a blurred backdrop, in the band
-# between the two caption lines (top left, end near y 275) and the clock and tile row (glyphs start near y 1675).
-# Tall photos are cropped a little wider (to PAIR_MIN / TALL_MIN) so a pair or three across fill more of the screen.
-G_TOP, G_BOT, G_GUT = 330, 1615, 64
-PAIR_MIN, TALL_MIN, TALL_GUT = 0.88, 0.8, 56
-
-
 def shared_caption(ps):
     """Two caption lines for a glance spread: the places, then the day and camera."""
     line = shared_line(ps)
@@ -532,8 +476,6 @@ def main():
         lseen.add(key)
         talls.append((p, rel[0], rel[1]))
 
-    # Glance is the only mode on the TV now (2026-10-26), so only glance spreads are built. The guests
-    # layouts above stay for the site and for a rollback to the older app.
     jobs = []
     for p, q in pairs:
         jobs.append(("gpair-" + p["id"] + "+" + q["id"], "gpair", [p, q]))
@@ -548,7 +490,7 @@ def main():
         img, cells = draw[kind](*ps)
         jpg, h10, h8 = encode_spread(sid, img, a.force)
         head, sub = shared_caption(ps)
-        return dict(id=sid, kind=kind, members=[p["id"] for p in ps], blocks=[], line=shared_line(ps), head=head, sub=sub,
+        return dict(id=sid, kind=kind, members=[p["id"] for p in ps], line=shared_line(ps), head=head, sub=sub,
                     labels=column_labels(ps, cells), cells=[list(c) for c in cells],
                     weight=round(sum(p["weight"] for p in ps) / len(ps), 2),
                     hevc=f"/media/prod/hevc/{sid}.mp4?v={ver(h10)}", hevc8=f"/media/prod/hevc8/{sid}.mp4?v={ver(h8)}",
@@ -643,9 +585,9 @@ def main():
     from zoneinfo import ZoneInfo
     out = dict(version=2, generated=datetime.now(ZoneInfo(tvconf.TZ)).isoformat(timespec="seconds"),
                hidden=sorted(hidden_ids()), boost=boosts(), keep=sorted(keeps()), also=sorted(also_ids()), off_season=season.off_albums(),
-               photo_seconds=60, clip_share=clip_share, transition_ms={"guests": 2600, "glance": 2600}, tune=tune,
+               photo_seconds=60, clip_share=clip_share, transition_ms={"glance": 2600}, tune=tune,
                chapters={k: {"title": c["title"], "when": c.get("when")} for k, c in chapters.items()},
-               items=items, spreads=[], glance_spreads=spreads, videos=vids, clips_auto_hidden=sorted(auto_off))
+               items=items, glance_spreads=spreads, videos=vids, clips_auto_hidden=sorted(auto_off))
     os.makedirs(OUT, exist_ok=True)
     tmp = os.path.join(OUT, "prod.json.tmp")
     json.dump(out, open(tmp, "w"), indent=1)

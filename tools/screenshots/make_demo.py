@@ -56,7 +56,7 @@ def main():
         print(pid, flush=True)
     prod = {"version": 2, "generated": datetime.now().astimezone().isoformat(timespec="seconds"), "hidden": [], "boost": {},
             "keep": [], "also": [], "off_season": [], "photo_seconds": 60, "clip_share": 0,
-            "transition_ms": {"guests": 2600, "glance": 2600}, "chapters": {}, "items": items, "spreads": [],
+            "transition_ms": {"glance": 2600}, "chapters": {}, "items": items,
             "glance_spreads": [], "videos": [], "clips_auto_hidden": []}
     json.dump(prod, open(os.path.join(out, "prod.json"), "w"), indent=1)
     print(len(items), "demo photos in", out)

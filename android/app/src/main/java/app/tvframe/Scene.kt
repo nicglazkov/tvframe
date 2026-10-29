@@ -19,7 +19,7 @@ import android.view.animation.PathInterpolator
 /**
  * A tiny retained scene for the text that sits on the photos. Everything is placed in 4K stage
  * pixels (3840 x 2160, the same numbers as the site's CSS and the tune page) and scaled to the
- * UI plane when drawn, so the layout matches guests.html and glance.html.
+ * UI plane when drawn, so the layout matches glance.html.
  */
 val EASE_SOFT = PathInterpolator(0.4f, 0f, 0.2f, 1f)
 val EASE_CALM = PathInterpolator(0.22f, 1f, 0.36f, 1f)

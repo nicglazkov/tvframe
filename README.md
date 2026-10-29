@@ -69,7 +69,7 @@ cd ~/tvframe
 
 <p align="center"><img src="docs/screenshots/setup.png" alt="./tvframe setup in a terminal: Docker found, NVIDIA GPU found, four questions answered, the server running, and the photo manager's address" width="760"></p>
 
-`setup` checks Docker and your graphics card (and offers to install what is missing), asks where your photos are, your town for the weather, your time zone and this computer's address, then builds and starts the server. The first time takes about 10 minutes. It ends by printing the photo manager's address, `http://<this computer>:8150/`. Open it on your phone.
+`setup` checks Docker and your graphics card (and offers to install what is missing), asks where your photos are, your town for the weather, your time zone and this computer's address, then downloads and starts the server. The first time takes a few minutes. It ends by printing the photo manager's address, `http://<this computer>:8150/`. Open it on your phone.
 
 ### 2. The TV
 
@@ -85,7 +85,7 @@ Then on the computer:
 ./tvframe tv
 ```
 
-Enter the TV's address, and on the TV choose **Allow** with **Always allow from this computer** ticked. It asks whether you want the quiet home screen, then builds and installs the app. Your photos appear once the first build finishes. `./tvframe tv remove` puts the TV back exactly as it was.
+Enter the TV's address, and on the TV choose **Allow** with **Always allow from this computer** ticked. It asks whether you want the quiet home screen, then downloads and installs the app. Your photos appear once the first build finishes. `./tvframe tv remove` puts the TV back exactly as it was.
 
 <details>
 <summary>Other ways to install</summary>
@@ -119,4 +119,4 @@ Adding photos is just dropping them into a folder inside your photos folder, or 
 
 ## License
 
-Not yet chosen. Until a license is added, all rights are reserved.
+[MIT](LICENSE). The scoring models in the server image (OpenCLIP ViT-L/14, the LAION aesthetic predictor, YuNet) come under their own licenses.

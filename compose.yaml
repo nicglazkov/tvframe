@@ -7,7 +7,7 @@ services:
       context: .
       args:
         TORCH: ${TVFRAME_TORCH:-cu128}
-    image: ${TVFRAME_IMAGE:-tvframe}:${TVFRAME_TORCH:-cu128}   # TVFRAME_IMAGE=ghcr.io/... to download instead of build
+    image: ${TVFRAME_IMAGE:-ghcr.io/nicglazkov/tvframe}:${TVFRAME_TORCH:-cu128}   # TVFRAME_IMAGE=tvframe in .env: always build here
     restart: unless-stopped
     user: "${TVFRAME_UID:-1000}:${TVFRAME_GID:-1000}"
     environment:

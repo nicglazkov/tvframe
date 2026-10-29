@@ -7,7 +7,7 @@ import android.view.KeyEvent
 
 /**
  * The frame on demand: what the star button opens when no slideshow is up. It does not hold the screen
- * on, so after the usual 10 minutes the screensaver takes over in the same mode. Back closes it.
+ * on, so after the usual 10 minutes the screensaver takes over. Back closes it.
  */
 class ShowActivity : Activity() {
     private var show: FrameView? = null
@@ -25,7 +25,7 @@ class ShowActivity : Activity() {
         setContentView(v)
         SlideshowView.preferHighestMode(window, window?.decorView?.display)
         v.start()
-        Log.i(TAG, "show activity started, mode ${ModeStore.mode}")
+        Log.i(TAG, "show activity started")
     }
 
     override fun onStop() {
