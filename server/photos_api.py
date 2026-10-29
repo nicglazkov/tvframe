@@ -17,6 +17,11 @@ the playlist rebuilt (server/prod_build.py, about 15 s), which this API starts b
                                      Shortcut) a name without a usable extension gets one from the file's first bytes
   POST /hide    {id, hidden}         take a photo off the TV or put it back (site/data/hidden.json)
   POST /boost   {id, level}          how often it comes up: less, normal, more, most or fav (site/data/boost.json)
+  POST /bulk    {action: "trim", ids, trim}  which part of each clip the TV plays (site/data/trim.json): trim is
+                                     "whole", "auto" (the best 30 s, as scored) or {start, end} in seconds of the original.
+                                     The changed clips are cut again (tools/real_videos.py, clip_loops.py), a few minutes
+  GET  /full?id=I                    a small full-length copy of a clip for the trim editor (site/media/v/full), made the
+                                     first time it is asked for: {state: "building", pct} until it is {state: "ready", url}
   POST /move    {album, file, to}    move a file to another folder (its settings follow it)
   POST /remove  {album, file}        move a file to ~/tvframe/library-trash/<date>/<album>/ (recoverable)
   POST /folder/new     {name}
@@ -37,12 +42,15 @@ import tvconf  # noqa: E402
 HOME = os.path.expanduser("~/tvframe")
 sys.path.insert(0, os.path.join(HOME, "tools"))
 import library_ids, season  # noqa: E402
+import real_videos  # noqa: E402
 
 SITE = os.path.join(HOME, "site")
 LIB = os.path.join(HOME, "library")
 TRASH = os.path.join(HOME, "library-trash")
 HIDDEN = os.path.join(SITE, "data/hidden.json")
 BOOST = os.path.join(SITE, "data/boost.json")
+TRIM = os.path.join(SITE, "data/trim.json")    # clip id -> {whole} or {start, end}: the part the TV plays
+FULL = os.path.join(SITE, "media/v/full")       # full-length 960 px copies for the trim editor
 MIX = os.path.join(SITE, "data/mix.json")      # clips per 100 slides, the manager's Photos and clips slider
 SCORES = os.path.join(SITE, "data/scores.json")
 KEEP = os.path.join(SITE, "data/keep.json")           # id -> {at}: your pick in a group of similar shots
@@ -189,6 +197,113 @@ def apply_now():
         apply_state["error"] = str(e)[-300:]
     finally:
         apply_state["running"] = False
+
+
+recut = {"ids": set(), "gen": 0, "timer": None, "running": False, "error": None}
+
+
+def recut_soon(ids):
+    """Trims changed: cut those clips again for the TV, then rebuild the playlist. Waits for a library rebuild in
+    progress (same lock); a trim changed while it runs starts one more pass."""
+    with lock:
+        recut["ids"] |= set(ids)
+        recut["gen"] += 1
+        if recut["timer"]:
+            recut["timer"].cancel()
+        recut["timer"] = threading.Timer(3.0, recut_now)
+        recut["timer"].start()
+
+
+def recut_now():
+    with lock:
+        if recut["running"]:
+            return                                       # the pass in progress loops once more for it
+        recut["running"] = True
+    try:
+        while True:
+            with lock:
+                gen, ids = recut["gen"], set(recut["ids"])
+            with open(LOCK, "w") as fd:
+                fcntl.flock(fd, fcntl.LOCK_EX)
+                env = {**os.environ, "TVFRAME_SET": "real"}
+                for cmd in (["tools/real_videos.py"], ["tools/clip_loops.py"], ["tools/sync_data.py"], ["server/prod_build.py"]):
+                    r = subprocess.run([sys.executable, os.path.join(HOME, *cmd)], capture_output=True, text=True, timeout=7200,
+                                       cwd=HOME if cmd[0].startswith("tools") else os.path.join(HOME, "server"), env=env)
+                    recut["error"] = (r.stderr or r.stdout)[-300:] if r.returncode else None
+                    if r.returncode:
+                        break
+            with lock:
+                if recut["gen"] == gen:
+                    recut["ids"] -= ids
+                    break
+    except Exception as e:
+        recut["error"] = str(e)[-300:]
+    finally:
+        with lock:
+            recut["running"] = False
+            if recut["error"]:
+                recut["ids"] = set()
+
+
+def cut_of(pid):
+    """The part of the original the TV's copy of a clip was cut from (tools/real_videos.py recipe), as start, length."""
+    r = load(os.path.join(real_videos.V, "recipe", f"{pid}.json"), {})
+    return {"start": r["ss"], "len": r["tt"]} if "ss" in r and "tt" in r else None
+
+
+def web_url(pid):
+    f = f"{SITE}/media/v/web/{pid}.mp4"
+    try:
+        return f"media/v/web/{pid}.mp4?v={int(os.path.getmtime(f))}"     # a new cut must not come from the browser's cache
+    except OSError:
+        return f"media/v/web/{pid}.mp4"
+
+
+full_jobs = {}       # clip id -> {"pct"} while its full-length copy is being made
+
+
+def full_copy(pid):
+    """A small full-length H.264 copy of the original for the trim editor, same color step and rotation as the TV's."""
+    it = next((i for i in load(ITEMS, []) if i["id"] == pid and i["kind"] == "video"), None)
+    if not it:
+        return {"state": "missing"}
+    src = os.path.join(HOME, it["rel"])
+    dst, rec = os.path.join(FULL, pid + ".mp4"), os.path.join(FULL, pid + ".json")
+    try:
+        want = {"src_size": os.path.getsize(src), "recipe": 1}
+    except OSError:
+        return {"state": "missing"}
+    if load(rec, None) == want and os.path.exists(dst):
+        return {"state": "ready", "url": f"media/v/full/{pid}.mp4?v={int(os.path.getmtime(dst))}"}
+    with lock:
+        if pid in full_jobs:
+            return {"state": "building", "pct": full_jobs[pid].get("pct", 0)}
+        full_jobs[pid] = {"pct": 0}
+
+    def run():
+        try:
+            os.makedirs(FULL, exist_ok=True)
+            info = real_videos.probe(src, pid)
+            tmp = dst + ".tmp.mp4"
+            p = subprocess.Popen(["nice", "-n", "10", "ffmpeg", "-v", "error", "-y", "-progress", "pipe:1", "-nostats", *real_videos.rotate_args(pid), "-i", src,
+                                  "-an", "-vf", f"scale=960:540:force_original_aspect_ratio=decrease:flags=bicubic,{real_videos.color(info)}format=yuv420p",
+                                  "-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr", "-cq", "28", "-b:v", "0", "-maxrate", "6M", "-bufsize", "12M",
+                                  "-g", "15", "-movflags", "+faststart", tmp], stdout=subprocess.PIPE, text=True)
+            for line in p.stdout:                       # out_time_us=..., for the editor's progress
+                if line.startswith("out_time_us=") and info["duration"]:
+                    try:
+                        full_jobs[pid]["pct"] = min(99, int(int(line.split("=")[1]) / 1e4 / info["duration"]))
+                    except ValueError:
+                        pass
+            if p.wait() == 0:
+                os.replace(tmp, dst)
+                write(want, rec)
+        except Exception:
+            pass
+        finally:
+            full_jobs.pop(pid, None)
+    threading.Thread(target=run, daemon=True).start()
+    return {"state": "building", "pct": 0}
 
 
 def state():
@@ -354,6 +469,7 @@ def ranking(album):
     keep, also = kd.get("keep", {}), kd.get("also", {})
     picks = group_picks(scores, hidden, keep, also)
     on_tv = {v["id"].split(":", 1)[-1] for v in prod.get("videos", [])}
+    trims = load(TRIM, {}).get("trim", {})
     rows, clips = [], []
     for it in items:
         pid = it["id"]
@@ -363,7 +479,8 @@ def ranking(album):
         if it["kind"] == "video":
             c = clip_info(cs.get(pid), pid)
             clips.append(dict(base, thumb=f"media/v/posters/{pid}.jpg" if os.path.exists(f"{SITE}/media/v/posters/{pid}.jpg") else None,
-                              big=f"media/v/web/{pid}.mp4", clip=c, shown=pid in show, on_tv=pid in on_tv,
+                              big=web_url(pid), clip=c, shown=pid in show, on_tv=pid in on_tv,
+                              src=it.get("duration"), cut=cut_of(pid), trim=trims.get(pid), recutting=pid in recut["ids"],
                               auto=bool(c and c.get("auto_hide") and pid not in show and pid not in hidden)))
             continue
         sc = scores.get(pid)
@@ -386,7 +503,7 @@ def ranking(album):
     rows.sort(key=lambda r: (not r["scored"], -(r.get("quality") or 0)))
     for n, r in enumerate(rows):
         r["rank"] = n + 1 if r["scored"] else None
-    return {"album": album, "photos": rows, "clips": clips, "scored_total": len(allq),
+    return {"album": album, "photos": rows, "clips": clips, "scored_total": len(allq), "recut_error": recut["error"],
             "models": load(SCORES, {}).get("models", {}), "generated": load(SCORES, {}).get("generated")}
 
 
@@ -547,6 +664,9 @@ class H(BaseHTTPRequestHandler):
             return self.send(progress())
         if self.path.split("?", 1)[0] == "/all":
             return self.send(all_items())
+        if self.path.split("?", 1)[0] == "/full":
+            q = dict(x.split("=", 1) for x in self.path.split("?", 1)[-1].split("&") if "=" in x)
+            return self.send(full_copy(unquote(q.get("id", ""))))
         if self.path.split("?", 1)[0] == "/rank":
             q = dict(x.split("=", 1) for x in self.path.split("?", 1)[-1].split("&") if "=" in x)
             album = unquote(q.get("album", ""))
@@ -638,7 +758,7 @@ class H(BaseHTTPRequestHandler):
                 moved.append({"album": album, "file": file, "trash": to_trash(src)})
             return self.send({"ok": True, "count": len(moved), "failed": failed, "undo": {"action": "untrash", "moved": moved}})
         files = {"hidden": (HIDDEN, "hidden"), "level": (BOOST, "boost"), "keep": (KEEP, "keep"), "also": (KEEP, "also"),
-                 "show": (HIDDEN, "shown")}
+                 "show": (HIDDEN, "shown"), "trim": (TRIM, "trim")}
         with lock:
             docs = {f: load(f, {}) for f, _ in files.values()}      # keep and also share keep.json: load it once
             had = {f: set(doc) for f, doc in docs.items()}
@@ -683,6 +803,27 @@ class H(BaseHTTPRequestHandler):
                         put(pid, "also", {"at": now()} if act == "also" else None)
                         if act == "also":
                             put(pid, "hidden", None)
+                elif act == "trim":                          # the part of each clip the TV plays
+                    t, lens = b.get("trim"), {i["id"]: i.get("duration") for i in load(ITEMS, []) if i["kind"] == "video"}
+                    if any(pid not in lens for pid in ids):
+                        return self.fail("Only clips can be trimmed.")
+                    for pid in ids:
+                        if t == "auto":
+                            put(pid, "trim", None)
+                        elif t == "whole":
+                            put(pid, "trim", {"whole": True, "at": now()})
+                        elif isinstance(t, dict):
+                            try:
+                                st, en, dur = float(t["start"]), float(t["end"]), float(lens[pid] or 0)
+                            except (KeyError, TypeError, ValueError):
+                                return self.fail("A trim needs a start and an end.")
+                            st, en = max(0.0, st), min(dur, en)
+                            if en - st < 2:
+                                return self.fail("Keep at least 2 seconds of the clip.")
+                            put(pid, "trim", {"whole": True, "at": now()} if st < 0.05 and en > dur - 0.05
+                                else {"start": round(st, 2), "end": round(en, 2), "at": now()})
+                        else:
+                            return self.fail("bad trim")
                 elif act == "level":
                     level = b.get("level")
                     if level not in LEVELS:
@@ -696,7 +837,9 @@ class H(BaseHTTPRequestHandler):
                     docs[f].pop(key)                         # don't leave empty sections behind
                 write(docs[f], f)
             force = "show" in changed
-        if changed:
+        if "trim" in changed:
+            recut_soon(pid for pid, was in prev.items() if "trim" in was)
+        elif changed:
             apply_soon(force)
         return self.send({"ok": True, "count": len(ids) or len(prev), "changed": len(changed) > 0, "undo": {"action": "restore", "prev": prev}})
 
@@ -783,9 +926,9 @@ class H(BaseHTTPRequestHandler):
             library_ids.save(m)
             shutil.move(src, dst)
             with lock:                                    # off and how often follow the photo to its new id
-                for f, key in ((HIDDEN, "hidden"), (BOOST, "boost")):
+                for f, key in ((HIDDEN, "hidden"), (BOOST, "boost"), (TRIM, "trim")):
                     d = load(f, {key: {}})
-                    if old_id in d[key]:
+                    if old_id in d.setdefault(key, {}):
                         d[key][new_id] = d[key].pop(old_id)
                         write(d, f)
             return self.send({"ok": True, "file": os.path.basename(dst)})

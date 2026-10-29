@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Encode the real-album videos for the site (skips files already made with the current recipe).
-4K HEVC Main 10 for the TV, 1080p H.264 for browsers, a poster. Long clips are cut to a 30 s excerpt.
+4K HEVC Main 10 for the TV, 1080p H.264 for browsers, a poster. Long clips are cut to a 30 s excerpt,
+unless the manager says to play the whole clip or a part you trimmed (site/data/trim.json).
 Every clip comes out 3840x2160 and SDR BT.709, like the stills:
 - wide clips (16:10 and wider) fill the screen, centre-cropped;
 - tall and 4:3 clips sit centred on a blurred, darkened copy of themselves, the same look and 1.2% gap as
@@ -71,7 +72,17 @@ try: BEST = {k: v.get('best') for k, v in json.load(open(SCORES)).get('clips', {
 except (OSError, ValueError): BEST = {}
 
 
+TRIM = f'{T}/site/data/trim.json'                    # the manager's trims (photos_api.py /bulk trim) win over the rest
+try: TRIMS = json.load(open(TRIM)).get('trim', {}) or {}
+except (OSError, ValueError): TRIMS = {}
+
+
 def excerpt(vid, dur):
+    t = TRIMS.get(vid) or {}
+    if t.get('whole'): return 0.0, round(dur, 2)
+    if t.get('end') is not None:
+        s = round(min(max(0.0, float(t['start'])), max(0.0, dur - 2)), 2)
+        return s, round(min(float(t['end']), dur) - s, 2)
     if vid in EXCERPT: return EXCERPT[vid]
     b = BEST.get(vid)
     if dur > 30.5 and b and b.get('start_s') is not None:      # the liveliest, best looking 30 s, as scored

@@ -625,7 +625,7 @@ def main():
                              map=map_url(v["id"]), rect=clip_rect(v["id"]),
                              url8=f"/media/video8/{name}" if os.path.exists(v8) else None,
                              weight=cw, score=cs.get("score"),
-                             duration=min(float(v.get("duration") or 15), 30.0),
+                             duration=float(v.get("duration") or 15),
                              show_s=clip_show_s(lp if loop else os.path.join(photoset.videos(), "tv", name)),
                              caption={"place": v.get("place", ""), "when": " · ".join(x for x in [photoset.fmt_date(v.get("date", "")), photoset.fmt_clock(v.get("time", ""))] if x), "camera": v.get("camera", ""),
                                       "settings": (looks.get(v["id"]) or {}).get("settings", ""),
