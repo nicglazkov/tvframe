@@ -37,26 +37,40 @@ import kotlin.math.abs
  * and the photos take over. Laid out in 4K stage pixels like home.html, scaled to the UI plane.
  */
 class QuietHomeActivity : Activity() {
-    data class AppTile(val id: String, val name: String, val pkg: String?, val row: Int, val sys: Boolean = false,
+    data class AppTile(val id: String, val name: String, val pkg: String?, val sys: Boolean = false,
                        val bg: Int = 0xFF1A1C1E.toInt(), val fg: Int = Color.WHITE)
 
     companion object {
         const val LAUNCHERX = "com.google.android.apps.tv.launcherx"
-        val APPS = listOf(
-            AppTile("netflix", "Netflix", "com.netflix.ninja", 0, bg = 0xFF0B0B0B.toInt(), fg = 0xFFE50914.toInt()),
-            AppTile("youtube", "YouTube", "com.google.android.youtube.tv", 0, bg = 0xFFFF0033.toInt()),
-            AppTile("youtubetv", "YouTube TV", "com.google.android.youtube.tvunplugged", 0, bg = 0xFF181818.toInt()),
-            AppTile("prime", "Prime Video", "com.amazon.amazonvideo.livingroom", 0, bg = 0xFF0F1B2B.toInt(), fg = 0xFF1AA6E3.toInt()),
-            AppTile("plex", "Plex", "com.plexapp.android", 0, bg = 0xFF1F2326.toInt(), fg = 0xFFE5A00D.toInt()),
-            AppTile("dropout", "Dropout", "com.collegehumor.chdropout", 0, bg = 0xFFF4EC3C.toInt(), fg = 0xFF111111.toInt()),
-            AppTile("ytmusic", "YouTube Music", "com.google.android.youtube.tvmusic", 0, bg = 0xFF030303.toInt()),
-            AppTile("jellyfin", "Jellyfin", "org.jellyfin.androidtv", 1, bg = 0xFF4B4FB8.toInt()),
-            AppTile("emby", "Emby", "tv.emby.embyatv", 1, bg = 0xFF3D8F3A.toInt()),
-            AppTile("photos", "Photos", null, 1, bg = 0xFF222222.toInt()),
-            AppTile("tailscale", "Tailscale", "com.tailscale.ipn", 1, bg = 0xFF242322.toInt(), fg = 0xFFF2F0EE.toInt()),
-            AppTile("settings", "Settings", "com.android.tv.settings", 1, sys = true),
-            AppTile("google", "Google TV home", LAUNCHERX, 1, sys = true),
+        /** Well-known apps, in shelf order, each with a fallback color for when it ships no banner. Only installed ones show. */
+        val KNOWN = listOf(
+            AppTile("netflix", "Netflix", "com.netflix.ninja", bg = 0xFF0B0B0B.toInt(), fg = 0xFFE50914.toInt()),
+            AppTile("youtube", "YouTube", "com.google.android.youtube.tv", bg = 0xFFFF0033.toInt()),
+            AppTile("youtubetv", "YouTube TV", "com.google.android.youtube.tvunplugged", bg = 0xFF181818.toInt()),
+            AppTile("prime", "Prime Video", "com.amazon.amazonvideo.livingroom", bg = 0xFF0F1B2B.toInt(), fg = 0xFF1AA6E3.toInt()),
+            AppTile("disney", "Disney+", "com.disney.disneyplus", bg = 0xFF0E1A47.toInt()),
+            AppTile("max", "Max", "com.wbd.stream", bg = 0xFF002BE7.toInt()),
+            AppTile("hulu", "Hulu", "com.hulu.livingroomplus", bg = 0xFF0B0C0F.toInt(), fg = 0xFF1CE783.toInt()),
+            AppTile("appletv", "Apple TV", "com.apple.atve.androidtv.appletv", bg = 0xFF000000.toInt()),
+            AppTile("peacock", "Peacock", "com.peacocktv.peacockandroid", bg = 0xFF000000.toInt()),
+            AppTile("paramount", "Paramount+", "com.cbs.ott", bg = 0xFF0064FF.toInt()),
+            AppTile("plex", "Plex", "com.plexapp.android", bg = 0xFF1F2326.toInt(), fg = 0xFFE5A00D.toInt()),
+            AppTile("spotify", "Spotify", "com.spotify.tv.android", bg = 0xFF121212.toInt(), fg = 0xFF1ED760.toInt()),
+            AppTile("ytmusic", "YouTube Music", "com.google.android.youtube.tvmusic", bg = 0xFF030303.toInt()),
+            AppTile("twitch", "Twitch", "tv.twitch.android.app", bg = 0xFF9146FF.toInt()),
+            AppTile("jellyfin", "Jellyfin", "org.jellyfin.androidtv", bg = 0xFF4B4FB8.toInt()),
+            AppTile("emby", "Emby", "tv.emby.embyatv", bg = 0xFF3D8F3A.toInt()),
+            AppTile("kodi", "Kodi", "org.xbmc.kodi", bg = 0xFF17B2E7.toInt()),
         )
+        val PHOTOS = AppTile("photos", "Photos", null, bg = 0xFF222222.toInt())
+        /** Right end of the second row. */
+        val SYSTEM = listOf(
+            AppTile("settings", "Settings", "com.android.tv.settings", sys = true),
+            AppTile("google", "Google TV home", LAUNCHERX, sys = true),
+        )
+        /** Launchable but not wanted on the shelf: this app, the store, and Google's own surfaces. */
+        private val SKIP = setOf("app.tvframe", "com.android.vending", "com.android.tv.settings", LAUNCHERX,
+            "com.google.android.play.games", "com.google.android.videos", "com.google.android.tvrecommendations")
         private val GEAR = listOf("M24 17.5a6.5 6.5 0 1 0 0 13a6.5 6.5 0 1 0 0-13z", "M24 5.5v6M24 36.5v6M5.5 24h6M36.5 24h6M10.9 10.9l4.3 4.3M32.8 32.8l4.3 4.3M10.9 37.1l4.3-4.3M32.8 15.2l4.3-4.3")
         private val HOUSE = listOf("M8 22 24 9l16 13M13 19v19h22V19", "M21 38V28h6v10")
     }
@@ -154,6 +168,18 @@ class QuietHomeActivity : Activity() {
 
     private fun installed(pkg: String?): Boolean = pkg == null || try { packageManager.getPackageInfo(pkg, 0); true } catch (e: PackageManager.NameNotFoundException) { false }
 
+    /** Every other app with a TV launcher entry, by name. */
+    private fun others(): List<AppTile> {
+        val pm = packageManager
+        val known = KNOWN.mapNotNull { it.pkg }.toSet()
+        return pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER), 0)
+            .map { it.activityInfo.packageName to it.loadLabel(pm).toString() }
+            .distinctBy { it.first }
+            .filter { it.first !in known && it.first !in SKIP }
+            .sortedBy { it.second.lowercase() }
+            .map { (pkg, label) -> AppTile(pkg, label, pkg) }
+    }
+
     private fun banner(pkg: String): Drawable? = try {
         val pm = packageManager
         pm.getLeanbackLaunchIntentForPackage(pkg)?.let { pm.getActivityBanner(it) } ?: pm.getApplicationBanner(pkg)
@@ -167,15 +193,12 @@ class QuietHomeActivity : Activity() {
         labelV = text(44f, Color.WHITE).apply { alpha = .6f }
         ui.addView(labelV.apply { text = "Apps" }, FrameLayout.LayoutParams(-2, -2).apply { setMargins(pxi(200f), pxi(row0Top - 34f - 58f), 0, 0) })
         rows.clear(); rows.add(ArrayList()); rows.add(ArrayList())
-        for (r in 0..1) {
-            var col = 0
-            for (a in APPS.filter { it.row == r && !it.sys && installed(it.pkg) }) { place(a, r, col++, row0Top, row1Top, tileW, tileH) }
-            if (r == 1) {
-                val sys = APPS.filter { it.row == 1 && it.sys && installed(it.pkg) }
-                var c = 7 - sys.size
-                for (a in sys) place(a, 1, c++, row0Top, row1Top, tileW, tileH)
-            }
-        }
+        // first row: installed apps, known ones first; second row: Photos, more apps, then the system tiles
+        val sys = SYSTEM.filter { installed(it.pkg) }
+        val apps = KNOWN.filter { installed(it.pkg) } + others()
+        apps.take(7).forEachIndexed { c, a -> place(a, 0, c, row0Top, row1Top, tileW, tileH) }
+        (listOf(PHOTOS) + apps.drop(7)).take(7 - sys.size).forEachIndexed { c, a -> place(a, 1, c, row0Top, row1Top, tileW, tileH) }
+        sys.forEachIndexed { i, a -> place(a, 1, 7 - sys.size + i, row0Top, row1Top, tileW, tileH) }
         focus(0, 0)
     }
 
@@ -313,7 +336,7 @@ class QuietHomeActivity : Activity() {
                 "google" -> col.addView(glyph(HOUSE, 76f))
             }
             val wm = text(if (a.sys) 44f else 58f, a.fg).apply {
-                text = if (a.id == "netflix" || a.id == "dropout") a.name.uppercase() else a.name
+                text = if (a.id == "netflix") a.name.uppercase() else a.name
                 gravity = Gravity.CENTER
                 tag = if (a.sys) "wm-sys" else "wm"
                 if (a.id != "photos") setShadowLayer(0f, 0f, 0f, 0)

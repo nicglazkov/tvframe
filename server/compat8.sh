@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # 8-bit HEVC copies of the clips and the loop video, for decoders without HEVC Main10
 # (the Android TV emulator; the real Streamer should not need them). No audio.
 set -e

@@ -51,7 +51,7 @@ tools/library_sync.sh
 
 The first build reads every file, so it takes a while. Later builds only redo what changed.
 
-Shoot S-Log3 video on a Sony camera? Put Sony's S-Log3 (S-Gamut3.Cine) to Rec.709 LUT, as a 33-point `.cube` file, at `tools/slog3_709.cube` and ungraded clips get it applied. Without it they play as shot. To pull from Google Photos shared albums instead, see [`ingest/README.md`](ingest/README.md).
+Shoot S-Log3 video on a Sony camera? Put Sony's S-Log3 (S-Gamut3.Cine) to Rec.709 LUT, as a 33-point `.cube` file, at `tools/slog3_709.cube` and ungraded clips get it applied. Without it they play as shot. To pull from Google Photos shared albums instead, see [`ingest/README.md`](../ingest/README.md).
 
 ## 3. Services
 

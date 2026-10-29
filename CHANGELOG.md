@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.10
+
+- The quiet home screen shows every TV app you have installed: well-known ones first with their own colors, the rest by name. The app list no longer comes from one household.
+- The README is short again. The details moved to [docs/GUIDE.md](docs/GUIDE.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+- Checks pass on every push again (a shell script used a test plain `sh` does not have), on current GitHub Actions versions.
+
 ## 0.3.9
 
 - **Install on any computer with Docker.** `./tvframe setup` sets up the server, `./tvframe tv` puts the app on the TV. One container holds every service and the scoring models.
