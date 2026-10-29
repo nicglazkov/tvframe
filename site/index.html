@@ -211,7 +211,7 @@ dialog.view:has(video) .cap{position:static;background:none;padding-top:10px}
 .bar2.big i{height:7px}
 .bar2.big span{font-weight:600;color:var(--ink)}
 @keyframes grow{from{transform:scaleX(0)}}
-.rk .why{color:var(--ink-2);max-width:240px}
+.rk .why{color:var(--ink-2);max-width:240px;overflow-wrap:anywhere}
 .rk .pill2{display:inline-block;font-size:11.5px;font-weight:600;padding:1px 6px;border-radius:4px;background:var(--line);color:var(--ink-2);white-space:nowrap}
 .rk .pill2.on{background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent)}
 .rk .pill2.off{background:color-mix(in srgb,var(--bad) 14%,transparent);color:var(--bad)}
@@ -466,6 +466,14 @@ body.selecting .toast,body.cselecting .toast,body.pselecting .toast{bottom:calc(
 .trim [hidden]{display:none!important}
 /* photo ranking: pick many, how each one looks on the TV, framing */
 .rk .ckp{width:38px;padding-right:0}
+.rk tr.rk-more td{padding:18px 8px;text-align:center;color:var(--ink-3);font-size:13px}
+/* the table has to fit its box: once it scrolls sideways, every frame redraws all of it and scrolling stutters */
+@media (max-width:1279px){.bar2{min-width:62px}.rk .why{max-width:190px}}
+@media (max-width:1000px){.rk .c-ex,.rk .c-no{display:none}.bar2{min-width:56px}.rk .why{max-width:150px}.rk .fnw{max-width:180px}}
+@media (max-width:860px){.rk .c-why,.rk .c-fa,.rk .c-sh{display:none}.rk .fnw{max-width:150px}}
+@media (max-width:660px){.rk .c-ae{display:none}}
+@media (max-width:480px){.rk .ckp{width:30px}.rk .rcb{width:26px}.rk .fnw{max-width:84px}}
+@media (max-width:370px){.rk .fnw{max-width:60px}.bar2{min-width:46px}}
 .rk tr.row.sel{background:color-mix(in srgb,var(--accent) 7%,transparent)}
 .rk tr.row.recut .th img{animation:pulse 1.1s ease-in-out infinite}
 .tvp{position:relative;aspect-ratio:16/9;overflow:hidden;background:#000;display:block}
@@ -1062,7 +1070,7 @@ async function renderRank(f, seg, only) {   // only: 'rank' (photos) or 'clips',
   const chance = r => !r.scored ? '–' : r.off ? '<span class="pill2 off">Off</span>' : !r.is_rep ? '<span class="pill2">Similar shown</span>' : r.share ? `${r.share >= 1 ? r.share.toFixed(1) : r.share.toFixed(2)}%` : '–';
   pOrder = rows.map(r => r.id); [...psel].forEach(i => pOrder.includes(i) || psel.delete(i));
   const head = `<th class="ckp"><button class="cb rcb" type="button" role="checkbox" aria-checked="${pAllState()}" data-psel="*" aria-label="Select every photo shown"><i>${IC.check}</i></button></th>` + RCOLS.map(([key, label, cls]) => `<th class="${cls}" ${key === k ? `aria-sort="${(key === 'rank' || key === 'file' ? -dir : dir) > 0 ? 'ascending' : 'descending'}"` : ''}>${key ? `<button type="button" data-sort="${key}">${label}<span class="ar">${key === k ? '▾' : ''}</span></button>` : label}</th>`).join('');
-  const body = rows.length ? rows.map(r => {
+  const row = r => {
     const i = d.photos.indexOf(r);
     return `<tr class="row ${r.off ? 'off' : ''} ${rankOpen === r.id ? 'open' : ''}${psel.has(r.id) ? ' sel' : ''}${r.reframing ? ' recut' : ''}" data-r="${i}" data-pid="${esc(r.id)}" tabindex="0" aria-expanded="${rankOpen === r.id}">
       <td class="ckp"><button class="cb rcb" type="button" role="checkbox" aria-checked="${psel.has(r.id)}" data-psel="${esc(r.id)}" aria-label="Select ${esc(r.file)}"><i>${IC.check}</i></button></td><td class="n">${r.rank ?? ''}</td><td class="th">${r.thumb ? `<img src="${esc(r.thumb)}" alt="" loading="lazy">` : ''}</td>
@@ -1071,13 +1079,32 @@ async function renderRank(f, seg, only) {   // only: 'rank' (photos) or 'clips',
       <td class="c-ex">${bar(r.exposure)}</td><td class="c-no">${bar(r.noise)}</td><td class="c-fa">${r.scored ? r.faces || '–' : '–'}</td>
       <td class="c-sha">${chance(r)}</td><td class="c-why why">${esc(r.reason || '')}</td></tr>
       <tr class="det ${rankOpen === r.id ? 'open' : ''}"><td colspan="${RCOLS.length + 1}"><div class="detw"><div class="deti">${rankOpen === r.id ? detail(r, d) : ''}</div></div></td></tr>`;
-  }).join('') : `<tr><td colspan="${RCOLS.length + 1}" class="rk-none">No photos match. <button type="button" class="lnk" data-rkf="photos:all">Show all</button></td></tr>`;
+  };
+  // a thousand rows at once make every frame slow to draw: draw the first ones, the rest as you scroll near them
+  const ctx = `${f.name}|${k}|${dir}|${RF.photos}|${RF.q}`;
+  if (rkMore.ctx !== ctx) Object.assign(rkMore, { ctx, n: RK_STEP });
+  const open = rows.findIndex(r => r.id === rankOpen);
+  rkMore.n = Math.max(rkMore.n, open + 1);
+  const body = rows.length ? rows.slice(0, rkMore.n).map(row).join('') + (rows.length > rkMore.n ? `<tr class="rk-more"><td colspan="${RCOLS.length + 1}">Showing ${nf(rkMore.n)} of ${nf(rows.length)}…</td></tr>` : '') : `<tr><td colspan="${RCOLS.length + 1}" class="rk-none">No photos match. <button type="button" class="lnk" data-rkf="photos:all">Show all</button></td></tr>`;
   const clips = d.clips.length && !only ? clipTable(d.clips) : '';
   $('view').innerHTML = seg + `<p class="rk-intro">${scored} of ${d.photos.length} photos${all ? ' from every folder' : ''} ranked by the photo scorer. <b>Score</b> is the overall rating, built from <b>Looks</b> (how good it looks to a model trained on thousands of people's ratings), <b>Sharp</b>, <b>Exposure</b> and <b>Clean</b> (low noise), plus faces in focus. Similar shots are grouped and only the best one shows. <b>Chance</b> is how likely it is to be the next photo on the TV, after your How often settings. Tap a row for everything. Point at a photo to see it as the TV shows it, tick a few to change them at once, and use Crop to pick the part that fills the screen.</p>
     ${rfBar(d.photos, 'photos')}<div style="overflow-x:auto"><table class="rk"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>${clips}`;
   $('view').dataset.rk = key;
   placePill();
+  rkMore.io?.disconnect();
+  const more = $('view').querySelector('.rk tr.rk-more');
+  if (more) {
+    rkMore.io = new IntersectionObserver(es => {
+      if (!es[0].isIntersecting || !more.isConnected) return;
+      const from = rkMore.n; rkMore.n = Math.min(rows.length, from + RK_STEP);
+      more.insertAdjacentHTML('beforebegin', rows.slice(from, rkMore.n).map(row).join(''));
+      if (rkMore.n >= rows.length) { rkMore.io.disconnect(); more.remove(); }
+      else more.firstElementChild.textContent = `Showing ${nf(rkMore.n)} of ${nf(rows.length)}…`;
+    }, { rootMargin: '1500px 0px' });
+    rkMore.io.observe(more);
+  }
 }
+const RK_STEP = 150, rkMore = { ctx: null, n: 0, io: null };
 function clipTable(cs, all, filt) {   // filt: the clip ranking tab, with its own filter bar, picking many and trimming
   const scored = cs.filter(c => c.clip), auto = cs.filter(c => c.auto).length, off = cs.filter(c => c.off).length;
   const shown = [...(filt ? cs.filter(c => rfMatch(c, 'clips')) : cs)].sort((a, b) => (b.clip?.score ?? -1) - (a.clip?.score ?? -1));
