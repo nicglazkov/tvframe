@@ -1,5 +1,5 @@
 [Unit]
-Description=TV Frame bridge: Home Assistant mode helper and live data for the TV (8154)
+Description=TV Frame bridge: live data and Home Assistant states for the TV (8154)
 After=network-online.target
 
 [Service]
