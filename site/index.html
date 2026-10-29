@@ -2324,6 +2324,70 @@ function frDone() {
   refetchPhotos();
 }
 
+// ---------- the photo grids (every photo, a folder's photos): point at one to see it as the TV shows it ----------
+let ghov = null, ghovId = null, ghovWant = null, ghovT = null, ghovRaf = 0, tvLook = null, tvLookAt = 0;
+async function tvLookup() {     // how each photo sits on the TV and each clip's cut: the ranking data, refreshed now and then
+  if (rankFor === '*' && rankData) return rankData;
+  if (!tvLook || Date.now() - tvLookAt > 120000) {
+    try { tvLook = await fetch(`${API}/rank?album=*`, { cache: 'no-store' }).then(r => r.json()); tvLookAt = Date.now(); } catch {}
+  }
+  return tvLook;
+}
+function gridItem(el) {
+  if (el.classList.contains('it')) return A?.by.get(el.dataset.k);
+  const f = lib.folders.find(x => x.name === route()), b = el.querySelector('[data-view]');
+  return b ? f?.files[+b.dataset.view] : null;
+}
+const clipSpan = c => {
+  const cut = c?.cut, src = c && srcLen(c);
+  return c?.recutting ? 'Being cut again' : cut && src ? (cut.start < .05 && cut.len >= src - .15 ? `All ${fmtS(src)}` : `${fmtM(cut.start)} to ${fmtM(cut.start + cut.len)} of ${fmtS(src)}`) : '';
+};
+document.addEventListener('mouseover', e => {
+  if (!HOVER.matches) return;
+  const el = e.target.closest('#abody .it, .grid .tile'), x = el && e.target.closest('.im, .img') ? gridItem(el) : null;
+  const id = x?.thumb ? x.id : null;
+  if (id === ghovWant) return;
+  ghovWant = id; clearTimeout(ghovT);
+  ghovT = id ? setTimeout(() => showGhov(x, el), ghovId ? 40 : 220) : setTimeout(hideGhov, 90);
+});
+window.addEventListener('scroll', () => { if (ghovId || ghovWant) { clearTimeout(ghovT); ghovWant = null; hideGhov(); } }, { passive: true });
+document.addEventListener('mousedown', () => { if (ghovId) { clearTimeout(ghovT); ghovWant = null; hideGhov(); } }, true);
+async function showGhov(x, el) {
+  const d = await tvLookup();
+  if (ghovWant !== x.id || !el.isConnected || $('viewer').open) return;
+  if (!ghov) { ghov = document.createElement('div'); ghov.className = 'hov'; ghov.setAttribute('aria-hidden', 'true'); document.body.appendChild(ghov); }
+  cancelAnimationFrame(ghovRaf);
+  if (ghovId !== x.id) {
+    if (x.video) {
+      const c = d?.clips.find(c => c.id === x.id);
+      ghov.innerHTML = `<video muted playsinline loop preload="auto"></video><div class="pb"><i></i></div><div class="hc"><b></b><span></span></div>`;
+      const v = ghov.querySelector('video'); v.poster = x.thumb; v.src = c?.big || x.big; v.play().catch(() => {});
+      ghov.querySelector('.hc span').textContent = clipSpan(c);
+    } else {
+      const r = d?.photos.find(r => r.id === x.id);
+      ghov.innerHTML = `${r?.fr ? tvPic(bigOf(r), r.fr) : `<span class="tvp"><img class="fg" src="${esc(x.big || x.thumb)}" alt=""></span>`}<div class="hc"><b></b><span></span></div>`;
+      ghov.querySelector('.hc span').textContent = r?.reframing ? 'Being framed again' : r?.fr ? (r.fr.box ? 'Fills the screen' : 'Whole, on a backdrop') : '';
+    }
+    ghov.querySelector('.hc b').textContent = x.file;
+  }
+  ghovId = x.id;
+  const b = (el.querySelector('.im, .img') || el).getBoundingClientRect(), w = ghov.offsetWidth, h = w * 9 / 16 + 40, gap = 14;
+  let px = b.right + gap, py = b.top + b.height / 2 - h / 2;
+  if (px + w > innerWidth - 12) px = b.left - w - gap;
+  if (px < 12) { px = Math.max(12, Math.min(innerWidth - w - 12, b.left)); py = b.bottom + 8 + h > innerHeight - 12 ? b.top - h - 8 : b.bottom + 8; }
+  ghov.style.left = `${Math.round(px)}px`; ghov.style.top = `${Math.round(Math.max(12, Math.min(innerHeight - h - 12, py)))}px`;
+  ghov.classList.add('show');
+  const v = ghov.querySelector('video'), pb = ghov.querySelector('.pb i');
+  if (v) { const tick = () => { if (v.duration) pb.style.setProperty('--p', v.currentTime / v.duration); ghovRaf = requestAnimationFrame(tick); }; tick(); }
+}
+function hideGhov() {
+  ghovId = null; cancelAnimationFrame(ghovRaf);
+  if (!ghov) return;
+  ghov.classList.remove('show');
+  const v = ghov.querySelector('video');
+  if (v) setTimeout(() => { if (!ghovId) { v.pause(); v.removeAttribute('src'); v.load(); } }, 180);
+}
+
 // ---------- toast ----------
 let toastT;
 function toast(msg, bad = false, undo = null) {

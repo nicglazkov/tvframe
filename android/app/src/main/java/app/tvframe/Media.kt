@@ -162,7 +162,7 @@ class ClipPlayer(private val loop: Boolean = false) {
                 if (what == MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START) onFirstFrame()
                 false
             }
-            p.setOnCompletionListener { if (!loop) onEnd() }
+            p.setOnCompletionListener { if (!loop) onEnd() else Log.i(TAG, "clip stopped on its last frame at ${runCatching { it.currentPosition }.getOrDefault(-1)} of ${durationMs} ms") }
             p.setOnErrorListener { _, what, extra -> onError(IllegalStateException("MediaPlayer error $what/$extra")); true }
             p.prepareAsync()
         } catch (e: Exception) {
@@ -173,9 +173,12 @@ class ClipPlayer(private val loop: Boolean = false) {
     fun pause() { runCatching { mp?.pause() } }
     fun resume() { runCatching { mp?.start() } }
 
-    /** Lets the play under way run to its end, then holds its last frame and calls [done] (also when the player is
-     *  gone or never gets there, so the show cannot stall). A looping clip is caught on its last frames or as it wraps. */
-    fun pauseAtEnd(main: android.os.Handler, done: () -> Unit) {
+    /** Makes the play under way the last one: looping goes off, so the player stops on the clip's real last frame and
+     *  holds it (pausing near the end instead was too late on the Streamer: its decoder is already into the next play
+     *  while the position it reports is still at the end). [done] runs [leadMs] before the end, so the next slide gets
+     *  ready and its fade starts over the last moments of motion; also when the player is gone or never gets there. */
+    fun finishPlay(main: android.os.Handler, leadMs: Int, done: () -> Unit) {
+        runCatching { mp?.isLooping = false }
         val dur = durationMs
         var last = -1
         val t0 = android.os.SystemClock.elapsedRealtime()
@@ -185,10 +188,9 @@ class ClipPlayer(private val loop: Boolean = false) {
             override fun run() {
                 val p = mp
                 val pos = runCatching { p?.currentPosition ?: -1 }.getOrDefault(-1)
-                if (p == null || pos < 0 || dur <= 0 || pos >= dur - 150 || (last >= 0 && pos < last - 200) ||
+                if (p == null || pos < 0 || dur <= 0 || pos >= dur - leadMs || !p.isPlaying || (last >= 0 && pos < last - 200) ||
                     android.os.SystemClock.elapsedRealtime() > give) {
-                    pause()
-                    Log.i(TAG, "clip finishing its play: from ${from} ms, held at ${pos} of ${dur} ms after ${android.os.SystemClock.elapsedRealtime() - t0} ms")
+                    Log.i(TAG, "clip finishing its play: from ${from} ms, moving on at ${pos} of ${dur} ms after ${android.os.SystemClock.elapsedRealtime() - t0} ms")
                     done(); return
                 }
                 last = pos

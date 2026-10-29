@@ -48,6 +48,11 @@ const val CLIP_FIRST_FRAME_MS = 10_000L
 
 /** After a fade, the 1080p cover on the UI plane dissolves into the 4K picture underneath over this long. */
 const val VEIL_OUT_MS = 1_000L
+/** How long before a clip's last play ends the show moves on: up to about 1.4 s for the next slide to get ready, then its
+ *  fade starts over the clip's last half second of motion and the clip stops on its last frame under it. */
+const val CLIP_LEAD_MS = 2_000L
+/** How long before the end the last play is told not to loop: well before its decoder reaches the end. */
+const val CLIP_FINAL_MS = 3_000L
 
 private fun fullFrame() = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
 
@@ -271,10 +276,11 @@ class PlaneRenderer(
     /** How far into the clip on screen playback is (0 when none). */
     fun clipPositionMs(): Int = (if (upperShown) upper else lower).clip?.positionMs ?: 0
 
-    /** The clip on screen finishes the play under way and holds its last frame; then [done]. Right away when no clip is up. */
+    /** The clip on screen makes the play under way its last and holds its last frame; [done] runs [CLIP_LEAD_MS]
+     *  before that end. Right away when no clip is up. */
     fun finishClip(done: () -> Unit) {
         val c = (if (upperShown) upper else lower).clip ?: return done()
-        c.pauseAtEnd(main, done)
+        c.finishPlay(main, CLIP_LEAD_MS.toInt(), done)
     }
 
     override fun show(item: Item, file: File?, cb: Callbacks) {

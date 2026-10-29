@@ -247,7 +247,7 @@ class FrameView(ctx: Context, private val role: Role = Role.SHOW, private val la
     private var otdThumb: android.graphics.Bitmap? = null
     private val tune get() = prod?.tune ?: Tune()
 
-    // the timed move on: a clip is never cut mid-play, it finishes the play under way and holds its last frame first
+    // the timed move on: a clip is never cut mid-play: the play under way becomes its last, and the next slide fades in over its end
     private var finishTok = 0
     private val advanceRunnable = Runnable {
         val r = renderer as? PlaneRenderer
@@ -429,9 +429,9 @@ class FrameView(ctx: Context, private val role: Role = Role.SHOW, private val la
         // is already a fade into its first play. Shortly before the last play ends, advanceRunnable lets it finish
         // and fades out from its last frame
         val played = if (item.isVideo) (renderer as? PlaneRenderer)?.clipPositionMs()?.toLong() ?: 0L else 0L
-        val hold = if (item.isVideo) (clipShowMs(item) - played - 1_000L).coerceAtLeast(2_000L) else (p.photoSeconds * 1000).toLong()
+        val hold = if (item.isVideo) (clipShowMs(item) - played - CLIP_FINAL_MS).coerceAtLeast(2_000L) else (p.photoSeconds * 1000).toLong()
         shownAt = SystemClock.elapsedRealtime(); holdMs = hold
-        if (item.isVideo && role == Role.SHOW) runClipBar(hold + fadeMs())
+        if (item.isVideo && role == Role.SHOW) runClipBar(hold + CLIP_FINAL_MS - CLIP_LEAD_MS + fadeMs())
         if (details?.isOpen == true) { pausedLeft = hold; clipBarAnim?.pause() } else main.postDelayed(advanceRunnable, hold)
     }
 
