@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Prepare TV Frame media for the playlist server.
 
-For every photo (from ~/tvframe/curate/out/scores.json when it exists, else every
-*.jpg in ~/tvframe/photos/raw) this writes, under server/cache/:
+For every photo (from curate/out/scores.json when it exists, else every
+*.jpg in photos/raw) this writes, under server/cache/:
 
   frames/<id>.jpg   3840x2160 composed frame (cover crop on the focal point for
                     near-16:9 shots, a soft mat for portraits / squares / panoramas)
@@ -24,10 +24,11 @@ from concurrent.futures import ThreadPoolExecutor
 from PIL import Image, ImageFilter, ImageOps
 
 HOME = os.path.expanduser("~")
-ROOT = os.path.join(HOME, "tvframe")
+ROOT = tvconf.ROOT
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import photoset
+import encoders
 REAL = photoset.name() == "real"
 CACHE = photoset.cache()
 W, H = 3840, 2160
@@ -226,8 +227,8 @@ def encode(src_jpg, out_mp4, codec):
     else:
         enc = ["-c:v", "av1_nvenc", "-preset", "p7", "-tune", "hq", "-rc", "constqp", "-qp", "60"]
     tmp = out_mp4 + ".tmp.mp4"
-    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", src_jpg, "-frames:v", "1",
-                    "-vf", vf, *enc, *color, "-r", "1", "-movflags", "+faststart", "-an", tmp], check=True)
+    subprocess.run(encoders.ffmpeg(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", src_jpg, "-frames:v", "1",
+                                    "-vf", vf, *enc, *color, "-r", "1", "-movflags", "+faststart", "-an", tmp]), check=True)
     os.replace(tmp, out_mp4)
 
 
@@ -264,16 +265,16 @@ def make_test_chart():
         dr.line([(x, H - 200), (x, H - 80)], fill=g)
     im = im.convert("RGB")
     im.save(png, optimize=True)
-    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", png, "-frames:v", "1",
+    subprocess.run(encoders.ffmpeg(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", png, "-frames:v", "1",
                     "-vf", "scale=in_color_matrix=bt709:out_color_matrix=bt709:in_range=pc:out_range=tv,format=p010le",
                     "-c:v", "hevc_nvenc", "-profile:v", "main10", "-rc", "constqp", "-qp", "1", "-tag:v", "hvc1",
                     "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv",
-                    "-r", "1", "-movflags", "+faststart", mp4], check=True)
-    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", png, "-frames:v", "1",
+                    "-r", "1", "-movflags", "+faststart", mp4]), check=True)
+    subprocess.run(encoders.ffmpeg(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", png, "-frames:v", "1",
                     "-vf", "scale=in_color_matrix=bt709:out_color_matrix=bt709:in_range=pc:out_range=tv,format=yuv420p",
                     "-c:v", "hevc_nvenc", "-profile:v", "main", "-rc", "constqp", "-qp", "1", "-tag:v", "hvc1",
                     "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "tv",
-                    "-r", "1", "-movflags", "+faststart", mp48], check=True)
+                    "-r", "1", "-movflags", "+faststart", mp48]), check=True)
 
 
 def stale(out, src):

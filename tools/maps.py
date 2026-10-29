@@ -10,8 +10,11 @@ before prod_build.py; photos without GPS get no map.
 """
 import argparse, io, json, math, os, sys, time, urllib.request
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "server"))
+import tvconf  # noqa: E402
 
-HOME = os.path.expanduser("~/tvframe")
+HOME = tvconf.ROOT
 ITEMS = os.path.join(HOME, "real/items.json")
 OUT = os.path.join(HOME, "site/media/maps")
 TILES = os.path.expanduser("~/.cache/tvframe-tiles/esri")

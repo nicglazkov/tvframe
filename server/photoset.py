@@ -1,16 +1,17 @@
-"""Which photo set the frame server uses: "real" (your photos) or "unsplash" (the earlier test set).
+"""Which photo set the frame server uses: "real" (your photos, the default) or "unsplash" (the earlier test set).
 
 The choice lives in server/photoset (one word). Each set has its own cache folder, so switching
 back is just writing the other word and restarting serve.py:
-  unsplash -> server/cache/        photos from ~/tvframe/curate/out/scores.json, clips from photos/videos
-  real     -> server/cache-real/   photos from ~/tvframe/site/data/scores.json + site/media/p/<id>-4k.jpg,
+  unsplash -> server/cache/        photos from curate/out/scores.json, clips from photos/videos
+  real     -> server/cache-real/   photos from site/data/scores.json + site/media/p/<id>-4k.jpg,
                                    captions from site/data/captions.json, clips from photos/videos-real
 TVFRAME_SET=real|unsplash in the environment overrides the file.
 """
 import os
+import tvconf
 
 HOME = os.path.expanduser("~")
-ROOT = os.path.join(HOME, "tvframe")
+ROOT = tvconf.ROOT
 HERE = os.path.dirname(os.path.abspath(__file__))
 MONTHS = ["January", "February", "March", "April", "May", "June", "July",
           "August", "September", "October", "November", "December"]
@@ -22,7 +23,7 @@ def name():
         try:
             s = open(os.path.join(HERE, "photoset")).read().strip()
         except FileNotFoundError:
-            s = "unsplash"
+            s = "real"
     return "real" if s == "real" else "unsplash"
 
 

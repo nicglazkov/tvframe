@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Make the site's image files for your photos.
-Runs inside the tvframe-media:heif container (Pillow 12 + pillow-heif), see tools/real_build.sh.
-Input: /work/real/items.json (from real_meta.py). Output: /work/site/media/p/<id>-*, /work/photos/real/<id>.jpg
-(curation copies), /work/real/media.json."""
+Needs Pillow 12 and pillow-heif: the TV Frame image has them, else it runs in the tvframe-media:heif container
+(tools/library_sync.sh). Input: real/items.json (from real_meta.py). Output: site/media/p/<id>-*,
+photos/real/<id>.jpg (curation copies), real/media.json."""
 import json, os, io, base64
 from multiprocessing import Pool
 from PIL import Image, ImageOps, ImageFilter, ImageCms, ImageEnhance
 import pillow_heif
 pillow_heif.register_heif_opener()
-W = '/work'; OUT = f'{W}/site/media/p'; CUR = f'{W}/photos/real'
+W = os.path.dirname(os.path.dirname(os.path.abspath(__file__))); OUT = f'{W}/site/media/p'; CUR = f'{W}/photos/real'
 os.makedirs(OUT, exist_ok=True); os.makedirs(CUR, exist_ok=True)
 SRGB = ImageCms.createProfile('sRGB')
 

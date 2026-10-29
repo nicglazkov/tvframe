@@ -1,0 +1,45 @@
+# Checks every push: the Python compiles, the shell scripts pass shellcheck, the TV app builds.
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  server:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python compiles
+        run: python3 -m compileall -q server tools curate ingest
+      - name: Shell scripts
+        run: shellcheck -S warning tvframe install.sh tools/env.sh tools/conf.sh tools/deploy.sh tools/rollback.sh curate/run.sh server/compat8.sh
+      - name: CPU encoder fallback
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg >/dev/null
+          cd server && TVFRAME_ENCODER=cpu python3 -c "
+          import subprocess, encoders
+          cmd = encoders.ffmpeg(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=3840x2160', '-frames:v', '1',
+                                 '-vf', 'format=p010le', '-c:v', 'hevc_nvenc', '-profile:v', 'main10', '-preset', 'p7', '-tune', 'hq',
+                                 '-rc', 'constqp', '-qp', '17', '-tag:v', 'hvc1', '/tmp/still.mp4'])
+          subprocess.run(cmd, check=True)"
+          ffprobe -v error -show_entries stream=codec_name,profile,pix_fmt -of csv=p=0 /tmp/still.mp4 | grep -q "hevc,Main 10,yuv420p10le"
+
+  app:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Build the TV app
+        working-directory: android
+        run: |
+          tools/make-key.sh                         # a throwaway key: CI builds are never installed
+          ./gradlew -q --no-daemon assembleRelease
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tvframe-apk
+          path: android/app/build/outputs/apk/release/app-release.apk

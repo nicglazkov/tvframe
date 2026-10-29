@@ -2,21 +2,15 @@
 """Copy the photo set, curation and video outputs into the site, rewrite paths to site URLs,
 write data/manifest.json. Run any time:
 
-    python3 ~/tvframe/tools/sync_data.py              # your photos (default)
-    python3 ~/tvframe/tools/sync_data.py --unsplash   # the old Unsplash stand-in set
+    python3 tools/sync_data.py              # your photos (default)
+    python3 tools/sync_data.py --unsplash   # the old Unsplash stand-in set
 
-Real set, full rebuild from the zips in ~/tvframe/samples/zips:
-    python3 ~/tvframe/tools/real_meta.py                      # EXIF, GPS place names (cached), chapters
-    docker run --rm -u $(id -u):$(id -g) -v ~/tvframe:/work -w /work tvframe-media:heif python tools/real_media.py
-    python3 ~/tvframe/tools/real_videos.py                    # 4K HEVC + 1080p H.264 + poster
-    OUT=~/tvframe/curate/out-real META=~/tvframe/real/curate_meta.json ~/tvframe/curate/run.sh real
-    python3 ~/tvframe/tools/sync_data.py
-(tools/real_build.sh runs all of that.) Live glance data is separate: tools/fetch_live.py, on cron."""
+tools/library_sync.sh runs it as one step of the full rebuild. Live glance data is separate: tools/fetch_live.py, on cron."""
 import json, os, re, shutil, sys, datetime
 import os as _os, sys as _sys
 _sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "server"))
 import tvconf  # noqa: E402
-T = os.path.expanduser('~/tvframe'); S = f'{T}/site'; D = f'{S}/data'
+T = tvconf.ROOT; S = f'{T}/site'; D = f'{S}/data'
 UNSPLASH = '--unsplash' in sys.argv
 man = {'set': 'unsplash' if UNSPLASH else 'real'}
 

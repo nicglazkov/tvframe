@@ -1,0 +1,35 @@
+# TV Frame: the server (tvframe) and the photo manager (web). ./tvframe setup writes .env and, when the GPU
+# works from Docker, compose.override.yaml; then: docker compose up -d
+name: tvframe
+services:
+  tvframe:
+    build:
+      context: .
+      args:
+        TORCH: ${TVFRAME_TORCH:-cu128}
+    image: ${TVFRAME_IMAGE:-tvframe}:${TVFRAME_TORCH:-cu128}   # TVFRAME_IMAGE=ghcr.io/... to download instead of build
+    restart: unless-stopped
+    user: "${TVFRAME_UID:-1000}:${TVFRAME_GID:-1000}"
+    environment:
+      TZ: ${TVFRAME_TZ:-UTC}
+    volumes:
+      - .:/tvframe
+      - ${TVFRAME_LIBRARY:-./library}:/tvframe/library
+      - ${TVFRAME_CONFIG_DIR:-./.home/.config/tvframe}:/tvframe/.home/.config/tvframe
+    # The TV app and the photo manager expect these ports. The variables are only for a test install next to
+    # a real one.
+    ports:
+      - "${TVFRAME_PORT_MEDIA:-8151}:8151"    # playlist and media, for the TV
+      - "${TVFRAME_PORT_API:-8153}:8153"      # the photo manager's API
+      - "${TVFRAME_PORT_BRIDGE:-8154}:8154"   # what the TV shows, live data
+    cap_add: [SYS_NICE]                       # lets x265 place its threads (else a set_mempolicy warning per encode)
+    stop_grace_period: 20s
+
+  web:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports:
+      - "${TVFRAME_PORT_WEB:-8150}:8150"      # the photo manager
+    volumes:
+      - ./site:/srv:ro
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro

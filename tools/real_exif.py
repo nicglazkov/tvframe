@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """How each photo was taken, for the TV's details panel (OK on the remote): focal length, aperture, shutter, ISO,
 exposure compensation, flash, size and the editor it went through. Plain facts from EXIF, nothing judged.
-Reads ~/tvframe/real/items.json, writes ~/tvframe/real/exif.json {"photos": {id: {"lines": [...], ...}}}.
+Reads real/items.json, writes real/exif.json {"photos": {id: {"lines": [...], ...}}}.
 Only files that changed since the last run are read again (exiftool, batched)."""
 import json, os, re, subprocess
-T = os.path.expanduser('~/tvframe'); OUT = f'{T}/real/exif.json'
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "server"))
+import tvconf  # noqa: E402
+T = tvconf.ROOT; OUT = f'{T}/real/exif.json'
 TAGS = ['FNumber', 'ExposureTime', 'ISO', 'FocalLength', 'FocalLengthIn35mmFormat', 'LensModel', 'ExposureCompensation',
         'Flash', 'ImageWidth', 'ImageHeight', 'Software', 'Make', 'Model']
 

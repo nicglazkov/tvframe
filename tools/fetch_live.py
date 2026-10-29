@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fetch the live glance data (no API keys) and write ~/tvframe/site/data/live.json.
+"""Fetch the live glance data (no API keys) and write site/data/live.json.
 Weather and air quality: Open-Meteo, for LIVE_LAT/LIVE_LON in config.env. Headlines: NPR's public top-stories RSS.
 Sun times and golden hour are computed here. Nothing about the household is sent anywhere.
 Cron runs it every 20 minutes; a failed source keeps the last good value."""
@@ -13,7 +13,7 @@ if not (tvconf.LIVE_LAT and tvconf.LIVE_LON):
     sys.exit('Set LIVE_LAT, LIVE_LON and LIVE_PLACE in ' + tvconf.PATH)
 LAT, LON, WHERE = float(tvconf.LIVE_LAT), float(tvconf.LIVE_LON), tvconf.LIVE_PLACE
 TZ = ZoneInfo(tvconf.TZ)
-OUT = os.path.expanduser('~/tvframe/site/data/live.json')
+OUT = os.path.join(tvconf.ROOT, 'site/data/live.json')
 UA = {'User-Agent': 'tvframe/1.0 (home photo frame)'}
 def get(u, raw=False):
     r = urllib.request.urlopen(urllib.request.Request(u, headers=UA), timeout=20).read()

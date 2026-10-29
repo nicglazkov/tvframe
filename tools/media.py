@@ -1,9 +1,10 @@
 import json, os, sys, io, base64, glob
 from multiprocessing import Pool
 from PIL import Image, ImageOps, ImageFilter
-RAW = '/work/photos/raw'; OUT = '/work/site/media/p'
+W = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+RAW = f'{W}/photos/raw'; OUT = f'{W}/site/media/p'
 os.makedirs(OUT, exist_ok=True)
-sel = {s['id']: s for s in json.load(open('/work/photos/selected.json'))}
+sel = {s['id']: s for s in json.load(open(f'{W}/photos/selected.json'))}
 
 def resize(im, long_edge):
     w, h = im.size
@@ -52,5 +53,5 @@ def work(path):
 if __name__ == '__main__':
     files = sorted(glob.glob(RAW + '/*.jpg'), key=lambda p: int(os.path.basename(p)[:-4]) if os.path.basename(p)[:-4].isdigit() else 0)
     with Pool(14) as p: res = p.map(work, files)
-    json.dump(res, open('/work/site/data/media.json','w'), indent=0)
+    json.dump(res, open(f'{W}/site/data/media.json','w'), indent=0)
     print('done', len(res))

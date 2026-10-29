@@ -22,15 +22,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from zoneinfo import ZoneInfo
 
 HOME = os.path.expanduser("~")
-sys.path.insert(0, os.path.join(HOME, "tvframe", "tools"))
-import ha_ws  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tvconf  # noqa: E402
+sys.path.insert(0, os.path.join(tvconf.ROOT, "tools"))
+import ha_ws  # noqa: E402
 
 LA = ZoneInfo(tvconf.TZ)
 HA_URL = tvconf.HA_URL
 TOKEN = tvconf.ha_token()
-LIVE = os.path.join(HOME, "tvframe", "site", "data", "live.json")
+LIVE = os.path.join(tvconf.ROOT, "site", "data", "live.json")
 STATE_FILE = os.path.join(HOME, ".config", "tvframe", "bridge_state.json")
 WIFI_QR = os.path.join(HOME, ".config", "tvframe", "wifi_qr.json")   # {"ssid", "qr": rows of 0/1}, mode 0600
 # Weather codes (WMO) that mean rain, drizzle, showers or thunder.

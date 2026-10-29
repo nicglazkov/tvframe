@@ -12,7 +12,7 @@
 <p align="center">
   <a href="#what-it-does">What it does</a> ·
   <a href="#how-it-fits-together">How it fits together</a> ·
-  <a href="#setup">Setup</a> ·
+  <a href="#install">Install</a> ·
   <a href="#day-to-day">Day to day</a> ·
   <a href="#repository-layout">Layout</a>
 </p>
@@ -87,7 +87,7 @@ flowchart LR
     B[Network share]
     C[Google Photos<br>shared albums]
   end
-  subgraph Server["Home server (Linux, NVIDIA GPU)"]
+  subgraph Server["Home server (Docker, GPU optional)"]
     L[(library/<br>one folder per group)]
     W[library_watch.py]
     P["Build pipeline<br>EXIF and places · web and 4K images<br>clip scoring · video encodes<br>photo scoring · TV frames · maps"]
@@ -109,7 +109,7 @@ flowchart LR
 ```
 
 - **The TV app** (`android/`) is a Kotlin Android TV app with no dependencies beyond the platform. It runs as the screensaver (a `DreamService`), as an on-demand show, and as the optional home screen. It keeps an offline copy of the stills, so the frame keeps going if the server is down.
-- **The server** (`server/`, `tools/`) is plain Python, mostly standard library, run as `systemd --user` services. The heavier steps run in containers: image conversion with Pillow and HEIF support, and scoring on the GPU with [OpenCLIP](https://github.com/mlfoundations/open_clip) ViT-L/14, the LAION aesthetic predictor and the OpenCV YuNet face detector. Videos and TV frames are encoded with NVENC.
+- **The server** (`server/`, `tools/`) is plain Python, mostly standard library. It runs in one container (`Dockerfile`, `compose.yaml`) next to a Caddy container for the manager. Photos are scored with [OpenCLIP](https://github.com/mlfoundations/open_clip) ViT-L/14, the LAION aesthetic predictor and the OpenCV YuNet face detector, on the GPU when there is one. Videos and TV frames are encoded with NVENC on NVIDIA cards and with x265, x264 and SVT-AV1 on the CPU otherwise (`server/encoders.py`).
 - **The bridge** is the only thing that talks to Home Assistant. The TV asks the bridge, so the Home Assistant token never leaves the server.
 - **The photo manager** (`site/index.html`) is a single page with no build step, served read-only by Caddy.
 
@@ -120,112 +120,86 @@ flowchart LR
 - **Readable text on bright photos.** Bright frames get a graduated shade baked in (like an ND grad filter) under the clock and caption, so white text stays readable without a dark bar.
 - **What counts as a duplicate.** Photos taken close together that look alike to the image model are grouped, and only the best of each group goes on the TV. You can pick a different one from the Duplicates page.
 
-## Setup
+## Install
 
-TV Frame was built for one home: a Google TV Streamer and a Linux box with an NVIDIA GPU on the same network. It should work on other Google TV and Android TV devices (Android 12 or later) and on any Linux server with an NVIDIA card, but those are untested. The scripts expect the repository at `~/tvframe`.
+You need two things on the same home network:
 
-### 1. Server
+- **A TV that runs Google TV or Android TV 12 or later.** The Google TV Streamer is what it is built and tested on. See [Devices](docs/DEVICES.md) for the others.
+- **A computer that stays on**, running Linux with Docker. An NVIDIA graphics card makes the photo builds fast; without one everything still works, only slower. 8 GB of memory and 25 GB of free disk is enough to start.
 
-Requirements: Python 3.12, Docker with the NVIDIA container runtime, `ffmpeg` with NVENC, `exiftool`, and Node 18 or later (only for the screenshot tools).
+On that computer:
 
 ```bash
 git clone https://github.com/nicglazkov/tvframe ~/tvframe
 cd ~/tvframe
-
-# settings for this home
-mkdir -p ~/.config/tvframe
-cp config.example.env ~/.config/tvframe/config.env && chmod 600 ~/.config/tvframe/config.env
-$EDITOR ~/.config/tvframe/config.env
-
-# containers for image conversion and scoring
-docker build -t tvframe-media:heif -f tools/Dockerfile.media tools
-docker build -t tvframe-curate:local curate
+./tvframe setup
 ```
 
-Home Assistant is optional. To use it, put a long-lived access token in `~/.config/tvframe/ha_token` (chmod 600) and copy `home_entities.example.json` to `~/.config/tvframe/home_entities.json` with your own entity ids.
+`setup` checks Docker and the graphics card (and offers to install what is missing), asks where your photos are, your town for the weather and your time zone, then builds and starts the server. It takes 10 to 20 minutes the first time, most of it downloading. When it finishes, open the photo manager it prints, `http://<this computer>:8150/`, on your phone.
 
-The scoring step needs two model files in `curate/models/` (the OpenCLIP weights download there on their own the first time):
+Then put it on the TV:
 
 ```bash
-mkdir -p curate/models && cd curate/models
-curl -LO https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx
-curl -LO "https://github.com/christophschuhmann/improved-aesthetic-predictor/raw/main/sac+logos+ava1-l14-linearMSE.pth"
-cd ../..
+./tvframe tv
 ```
 
-### 2. Photos
+It shows what to switch on in the TV's Developer options, connects to the TV, builds the app and installs it as the screensaver. Approve the debugging prompt on the TV when it appears. That is all: the TV shows your photos once the first build is done, and keeps up with the library from then on.
 
-Put photos and videos in folders under `~/tvframe/library/`, one folder per group, then build everything once:
+<details>
+<summary>Other ways to install</summary>
 
-```bash
-mkdir -p ~/tvframe/library/Trips
-cp ~/Pictures/trip/*.jpg ~/tvframe/library/Trips/
-tools/library_sync.sh
-```
+- **One line:** `curl -fsSL https://raw.githubusercontent.com/nicglazkov/tvframe/main/install.sh | sh` clones into `~/tvframe` and runs `setup` (once the repository is public).
+- **Without Docker:** the services as `systemd --user` units straight on a Linux server. See [docs/MANUAL.md](docs/MANUAL.md).
+- **No questions:** `./tvframe setup --yes` takes every default; edit `~/.config/tvframe/config.env` afterwards and run `./tvframe restart`.
 
-The first build reads every file, so it takes a while. Later builds only redo what changed.
+</details>
 
-Shoot S-Log3 video on a Sony camera? Put Sony's S-Log3 (S-Gamut3.Cine) to Rec.709 LUT, as a 33-point `.cube` file, at `tools/slog3_709.cube` and ungraded clips get it applied. Without it they play as shot. To pull from Google Photos shared albums instead, see [`ingest/README.md`](ingest/README.md).
+### Works with
 
-### 3. Services
+| | Status |
+| --- | --- |
+| Google TV Streamer (4K) | Tested, runs every day |
+| Google TV emulator (Android 14) | Tested |
+| Chromecast with Google TV, onn 4K, other Google TV and Android TV 12+ devices | Expected to work, untested |
+| Fire TV, Nvidia Shield, Roku, Apple TV, other smart TVs | Not supported |
+| Server: Linux with an NVIDIA GPU | Tested |
+| Server: Linux, CPU only (AMD and Intel graphics included) | Tested. Same results; builds with many 4K clips are much slower |
+| Server: Windows (WSL 2) and macOS with Docker Desktop | Expected to work, untested |
 
-```bash
-cp deploy/systemd/tvframe-* ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now tvframe-photos tvframe-tune tvframe-bridge tvframe-library tvframe-watchdog.timer
-loginctl enable-linger "$USER"        # keep them running when you are logged out
-
-docker compose -f deploy/site.compose.yml up -d     # the photo manager on :8150
-
-# weather, air quality and headlines for Glance, every 20 minutes
-( crontab -l; echo "*/20 * * * * python3 $HOME/tvframe/tools/fetch_live.py >> $HOME/tvframe/real/live.log 2>&1" ) | crontab -
-```
-
-Open `http://<server>:8150/` to see the photo manager.
-
-### 4. The TV app
-
-On the TV, turn on Developer options and Network debugging. Then, with the Android SDK and a JDK 17 on the server:
-
-```bash
-cd ~/tvframe/android
-cat >> local.properties <<EOF
-sdk.dir=$HOME/android/sdk
-tvframe.server=http://192.168.1.20
-EOF
-tools/make-key.sh                  # once; keep android/keystore/ private and backed up
-./gradlew assembleRelease
-
-cd .. && tools/deploy.sh           # install, make it the screensaver, set the home screen
-```
-
-`tools/deploy.sh` writes down every TV setting before it changes it. `tools/rollback.sh` puts them all back, and `tools/rollback.sh --uninstall` removes the app as well.
-
-`tvframe.server` is only the default. It can be changed later in the app's settings. Add `tvframe.tz=Area/City` if the TV's own time zone is wrong.
+The full table, with why each one is or is not supported: [docs/DEVICES.md](docs/DEVICES.md).
 
 ## Day to day
 
 | To | Do this |
 | --- | --- |
-| Add photos | Drop them in a folder on the share, upload on the photo manager, or use the Send to TV shortcut from the share sheet (the manager's menu, Send photos from iPhone). The TV has them within about half an hour. |
+| Add photos | Drop folders into the photos folder you chose at setup, or upload on the photo manager. Each folder shows on the TV as a group. New photos reach the TV after the next build, usually within half an hour. |
 | Hide something | Tap the hide button on Now on TV, or open the photo's menu on the manager and choose Hide from TV. |
 | See a photo's details | Press OK on the remote. Press OK again, or wait, to close. |
 | Change how many clips play | Move the Photos and clips slider on the manager's home page. |
 | Show a folder only part of the year | Folder menu, then Schedule. |
-| Check the build | The status dot at the top of the manager. Tap it for each step and the GPU load. |
-| Undo everything on the TV | `tools/rollback.sh` |
+| Check the build | The status dot at the top of the manager. Tap it for each step and the GPU load. Or `./tvframe status`. |
+| See what the server is doing | `./tvframe logs` |
+| Change a setting | Edit `~/.config/tvframe/config.env`, then `./tvframe restart`. [`config.example.env`](config.example.env) lists them all. |
+| Update TV Frame | `./tvframe update` pulls the new version, rebuilds the server and updates the app on the TV. |
+| Undo everything on the TV | `./tvframe tv remove` (add `--uninstall` to remove the app too) |
+| Remove TV Frame | `./tvframe uninstall`. Your photos are left where they are. |
 
 ## Repository layout
 
 ```
-android/            the TV app (Kotlin, no third-party libraries)
+tvframe             the command: setup, tv, status, logs, update, uninstall
+install.sh          one-line installer (clones, then runs ./tvframe setup)
+Dockerfile          the server image: Python, ffmpeg, adb and the scoring models
+compose.yaml        the server and the photo manager's web server
+android/            the TV app (Kotlin, no third-party libraries) and its build image
 server/             playlist server, manager API, bridge, playlist builder, settings loader
 tools/              build steps, TV deploy and rollback, watchdog, live data, screenshot tools
-curate/             photo scoring and duplicate grouping (runs in a GPU container)
+curate/             photo scoring and duplicate grouping
 site/index.html     the photo manager (one file, no build step)
 ingest/             Google Photos shared album sync
-caddy/, deploy/     web server config, systemd units, compose file
-docs/screenshots/   the images in this README
+caddy/, deploy/     web server config, systemd units for running without Docker
+docs/               devices, running without Docker, releasing, screenshots
+.github/workflows/  checks on every push, signed app and images on every release
 ```
 
 Everything personal stays outside the repository: `~/.config/tvframe/` holds addresses, tokens and Home Assistant entities, and the photos, the library, generated media, scores and logs live in folders that git ignores.

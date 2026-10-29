@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """How each clip looks: how it was shot (from the camera's own tags, tools/real_videos.py "source") and how rich its
-colour and contrast come out on the TV (measured on the 4K TV encode). Writes ~/tvframe/real/clip_look.json:
+colour and contrast come out on the TV (measured on the 4K TV encode). Writes real/clip_look.json:
   {"clips": {id: {"shot": "iPhone HDR (Dolby Vision)", "settings": "4K · 60 fps · Dolby Vision", "color": 0..100,
                   "contrast": 0..100, "look": "Rich color", ...}}}
 The colour numbers come from ffmpeg signalstats on the middle third of the frame at 1 fps (tall clips sit on a
@@ -8,8 +8,12 @@ blurred backdrop, so the middle is the clip itself), 8-bit: SATAVG (mean saturat
 10th to 90th percentile luma spread). Cached per encode (size + mtime)."""
 import json, os, re, subprocess, sys
 from concurrent.futures import ThreadPoolExecutor
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "server"))
+import tvconf  # noqa: E402
+import encoders  # noqa: E402
 
-T = os.path.expanduser('~/tvframe')
+T = tvconf.ROOT
 OUT = f'{T}/real/clip_look.json'
 V = f'{T}/photos/videos-real/videos.json'
 
@@ -54,7 +58,7 @@ def shot(src):
 
 def measure(path):
     g = 'fps=1,crop=iw/3:ih:iw/3:0,scale=320:-2,format=yuv420p,signalstats,metadata=print:file=-'
-    r = subprocess.run(['ffmpeg', '-v', 'error', '-hwaccel', 'cuda', '-i', path, '-an', '-vf', g, '-f', 'null', '-'], capture_output=True, text=True)
+    r = subprocess.run(encoders.ffmpeg(['ffmpeg', '-v', 'error', '-hwaccel', 'cuda', '-i', path, '-an', '-vf', g, '-f', 'null', '-']), capture_output=True, text=True)
     sat, lo, hi = [], [], []
     for line in r.stdout.splitlines():
         m = re.search(r'lavfi\.signalstats\.(SATAVG|YLOW|YHIGH)=([\d.]+)', line)

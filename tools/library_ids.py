@@ -1,11 +1,11 @@
-"""Photo ids for ~/tvframe/library: <album prefix>-<file name slug> (tools/real_meta.py). The prefix of every album
+"""Photo ids for library/: <album prefix>-<file name slug> (tools/real_meta.py). The prefix of every album
 folder is kept in real/album_prefix.json, so a folder renamed on the photos manager keeps its prefix, and its photos
 keep their ids, scores and settings. A folder renamed in Finder gets a new prefix, so its photos are rebuilt."""
 import json, os, re, sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "server"))
 import tvconf  # noqa: E402
 
-T = os.path.expanduser("~/tvframe")
+T = tvconf.ROOT
 MAP = f"{T}/real/album_prefix.json"
 FIRST = tvconf.get_json("TVFRAME_ALBUM_PREFIXES", {})     # fixed prefixes for folders that must keep older ids
 

@@ -7,12 +7,13 @@ Every clip comes out 3840x2160 and SDR BT.709, like the stills:
 - tall and 4:3 clips sit centred on a blurred, darkened copy of themselves, the same look and 1.2% gap as
   a tall photo on its backdrop (real_media.py backdrop(), prod_build.py photo_rect());
 - iPhone HDR (HLG, PQ) is tone mapped to SDR; ungraded Sony S-Log3 clips get tools/slog3_709.cube.
-Reads ~/tvframe/real/items.json, writes ~/tvframe/photos/videos-real/videos.json (same schema sync_data.py reads)."""
+Reads real/items.json, writes photos/videos-real/videos.json (same schema sync_data.py reads)."""
 import json, os, subprocess
 import os as _os, sys as _sys
 _sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "server"))
 import tvconf  # noqa: E402
-T = os.path.expanduser('~/tvframe'); V = f'{T}/photos/videos-real'
+import encoders  # noqa: E402
+T = tvconf.ROOT; V = f'{T}/photos/videos-real'
 EXCERPT = {'v-bumperskid4corn': (40, 30)}      # start s, length s
 RECIPE = 2                                     # bump to re-encode every clip
 W, H = 3840, 2160
@@ -113,13 +114,13 @@ def main():
             if vid in NO_ROTATE: want['no_rotate'] = True
             if not (os.path.exists(rec) and json.load(open(rec)) == want and all(os.path.exists(f) for f in files.values())):
                 g = graph(info); cut = [*rotate_args(vid), '-ss', str(ss), '-t', str(tt), '-i', src, '-an', '-filter_complex']
-                subprocess.run(['ffmpeg', '-v', 'error', '-y', *cut, g, '-map', '[v]', '-c:v', 'hevc_nvenc', '-profile:v', 'main10',
+                subprocess.run(encoders.ffmpeg(['ffmpeg', '-v', 'error', '-y', *cut, g, '-map', '[v]', '-c:v', 'hevc_nvenc', '-profile:v', 'main10',
                                 '-preset', 'p6', '-rc', 'vbr', '-cq', '24', '-b:v', '0', '-maxrate', '40M', '-bufsize', '80M',
                                 '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709',
-                                '-tag:v', 'hvc1', '-movflags', '+faststart', files['tv']], check=True)
-                subprocess.run(['ffmpeg', '-v', 'error', '-y', '-i', files['tv'], '-vf', 'scale=1920:1080:flags=lanczos,format=yuv420p',
+                                '-tag:v', 'hvc1', '-movflags', '+faststart', files['tv']]), check=True)
+                subprocess.run(encoders.ffmpeg(['ffmpeg', '-v', 'error', '-y', '-i', files['tv'], '-vf', 'scale=1920:1080:flags=lanczos,format=yuv420p',
                                 '-c:v', 'h264_nvenc', '-profile:v', 'high', '-preset', 'p6', '-rc', 'vbr', '-cq', '23', '-b:v', '0',
-                                '-maxrate', '14M', '-bufsize', '28M', '-movflags', '+faststart', files['web']], check=True)
+                                '-maxrate', '14M', '-bufsize', '28M', '-movflags', '+faststart', files['web']]), check=True)
                 subprocess.run(['ffmpeg', '-v', 'error', '-y', '-ss', str(min(2.0, tt / 2)), '-i', files['tv'], '-frames:v', '1',
                                 '-vf', 'scale=1920:-2', '-q:v', '3', files['poster']], check=True)
                 json.dump(want, open(rec, 'w'))

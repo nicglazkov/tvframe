@@ -23,9 +23,10 @@ import json, math, os, subprocess, sys, time
 import os as _os, sys as _sys
 _sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "server"))
 import tvconf  # noqa: E402
+import encoders  # noqa: E402
 from concurrent.futures import ThreadPoolExecutor
 
-T = os.path.expanduser('~/tvframe') if not os.path.exists('/real') else '/'
+T = tvconf.ROOT
 RAWV = 1                                    # bump to re-measure every clip
 LOOKS_LONG, MOTION_LONG = 512, 256          # long side of the colour and grey frames
 LOOKS_FPS, MOTION_FPS = 2, 8
@@ -48,7 +49,7 @@ def gpu_stage(job_dir):
     import numpy as np
     import torch
     from PIL import Image
-    sys.path.insert(0, '/work')
+    sys.path.insert(0, '/work' if os.path.isfile('/work/curate.py') else os.path.join(T, 'curate'))
     import curate                                            # the photo scorer: same models, same measures
 
     jobs = sorted(f for f in os.listdir(job_dir) if f.endswith('.job.json'))
@@ -146,7 +147,7 @@ def extract(it, info, job_dir, out):
     base = os.path.join(job_dir, it['id'])
     g = (f"[0:v]fps={mfps},scale={lw}:{lh}:flags=area,{rv.color(info)}format=rgb24,split[a][b];"
          f"[a]fps={lfps}[l];[b]scale={mw}:{mh}:flags=area,format=gray[m]")
-    hw = ['-hwaccel', 'cuda'] if info['pix_fmt'] in ('yuv420p', 'yuv420p10le', 'nv12', 'p010le') else []
+    hw = encoders.hwaccel() if info['pix_fmt'] in ('yuv420p', 'yuv420p10le', 'nv12', 'p010le') else []
     cmd = ['ffmpeg', '-v', 'error', '-y', *hw, *rv.rotate_args(it['id']), '-i', src, '-an', '-filter_complex', g,
            '-map', '[l]', '-f', 'rawvideo', base + '.looks', '-map', '[m]', '-f', 'rawvideo', base + '.motion']
     r = subprocess.run(cmd, capture_output=True, text=True)
@@ -156,9 +157,9 @@ def extract(it, info, job_dir, out):
         raise RuntimeError(r.stderr.strip()[-300:])
     key = {'id': it['id'], 'v': RAWV, 'src_size': os.path.getsize(src), 'src_mtime': int(os.path.getmtime(src)),
            'duration': round(dur, 3), 'w': w, 'h': h, 'transfer': info['transfer'], 'fps': info['fps']}
+    jd, cd = (job_dir, out) if tvconf.IN_DOCKER else ('/jobs', '/cache-clips')    # paths as the scorer sees them
     json.dump({'key': key, 'lw': lw, 'lh': lh, 'mw': mw, 'mh': mh, 'lfps': lfps, 'mfps': mfps,
-               'looks': '/jobs/' + it['id'] + '.looks', 'motion': '/jobs/' + it['id'] + '.motion',
-               'out': '/cache-clips/' + it['id'] + '.json'}, open(base + '.job.json', 'w'))
+               'looks': f"{jd}/{it['id']}.looks", 'motion': f"{jd}/{it['id']}.motion", 'out': f"{cd}/{it['id']}.json"}, open(base + '.job.json', 'w'))
 
 
 # ======================================================================= step 3: scores
@@ -367,12 +368,16 @@ def main():
             with ThreadPoolExecutor(4) as ex:
                 list(ex.map(one, batch))
             uid = os.getuid(); gid = os.getgid()
-            r = subprocess.run(['docker', 'run', '--rm', '--runtime=nvidia', '-e', 'NVIDIA_VISIBLE_DEVICES=all',
-                                '-u', f'{uid}:{gid}', '-e', 'HOME=/tmp', '-w', '/work',
-                                '-e', f'CLIPS_TOTAL={2 * len(todo)}', '-e', f'CLIPS_BASE={len(todo) + i}',
-                                '-v', f'{T}/curate:/work:ro', '-v', f'{T}/tools:/tools:ro', '-v', f'{jobs}:/jobs',
-                                '-v', f'{cache}:/cache-clips', '-v', f"{os.path.expanduser('~/.cache')}:/cache",
-                                'tvframe-curate:local', 'python', '/tools/clip_score.py', '--gpu', '/jobs'])
+            if tvconf.IN_DOCKER:                          # the TV Frame image has the scorer's models and libraries
+                r = subprocess.run([sys.executable, os.path.abspath(__file__), '--gpu', jobs],
+                                   env=dict(os.environ, CLIPS_TOTAL=str(2 * len(todo)), CLIPS_BASE=str(len(todo) + i)))
+            else:
+                r = subprocess.run(['docker', 'run', '--rm', *tvconf.DOCKER_GPU,
+                                    '-u', f'{uid}:{gid}', '-e', 'HOME=/tmp', '-w', '/work',
+                                    '-e', f'CLIPS_TOTAL={2 * len(todo)}', '-e', f'CLIPS_BASE={len(todo) + i}',
+                                    '-v', f'{T}/curate:/work:ro', '-v', f'{T}/tools:/tools:ro', '-v', f'{jobs}:/jobs',
+                                    '-v', f'{cache}:/cache-clips', '-v', f"{os.path.expanduser('~/.cache')}:/cache",
+                                    'tvframe-curate:local', 'python', '/tools/clip_score.py', '--gpu', '/jobs'])
             if r.returncode != 0:
                 print('clip scoring container failed', r.returncode, flush=True)
             for f in os.listdir(jobs):

@@ -5,8 +5,11 @@ site/media/p/<id>-<size>.*, server/cache-real/{frames,kb,hevc,hevc8}/<id>.* and 
 removed, then the ledger is rewritten. Only this script writes the ledger, so a failed sync loses nothing.
 site/media/p also holds the sample photos other pages use, which is why this goes by id and never by scanning."""
 import glob, json, os, re
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "server"))
+import tvconf  # noqa: E402
 
-T = os.path.expanduser("~/tvframe")
+T = tvconf.ROOT
 LEDGER = f"{T}/real/library_ids.json"
 now = {i["id"] for i in json.load(open(f"{T}/real/items.json"))}
 try:

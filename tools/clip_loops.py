@@ -6,8 +6,12 @@ Also writes the loop's first frame as a 1920x1080 JPEG: the app fades that in on
 because the TV's display hardware does not blend two video layers (see Renderers.kt PlaneRenderer).
 Reads photos/videos-real/tv/*.mp4 (tools/real_videos.py), writes photos/videos-real/tvloop/<id>.mp4 and <id>.jpg."""
 import json, os, subprocess, sys
-sys.path.insert(0, os.path.expanduser('~/tvframe/tools'))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from real_videos import V, probe, progress
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "server"))
+import tvconf  # noqa: E402
+import encoders  # noqa: E402
 
 RECIPE = 1                    # bump to rebuild every loop
 OUT = f'{V}/tvloop'
@@ -26,10 +30,10 @@ def build(src, dst, poster):
     g = (f'[0:v]fps={fps},split[a][b];[a]trim=start={F},setpts=PTS-STARTPTS[m];[b]trim=end={F},setpts=PTS-STARTPTS[h];'
          f'[m][h]xfade=transition=custom:expr=\'{ease}\':duration={F}:offset={round(L - 2 * F, 3)},format=p010le[v]')
     tmp = dst + '.tmp.mp4'
-    subprocess.run(['ffmpeg', '-v', 'error', '-y', '-i', src, '-an', '-filter_complex', g, '-map', '[v]',
+    subprocess.run(encoders.ffmpeg(['ffmpeg', '-v', 'error', '-y', '-i', src, '-an', '-filter_complex', g, '-map', '[v]',
                     '-c:v', 'hevc_nvenc', '-profile:v', 'main10', '-preset', 'p6', '-rc', 'vbr', '-cq', '24', '-b:v', '0',
                     '-maxrate', '40M', '-bufsize', '80M', '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709',
-                    '-tag:v', 'hvc1', '-movflags', '+faststart', tmp], check=True)
+                    '-tag:v', 'hvc1', '-movflags', '+faststart', tmp]), check=True)
     os.replace(tmp, dst)
     # BT.709 limited range in, plain RGB out (the JPEG encoder does its own JFIF conversion), so it matches the video
     subprocess.run(['ffmpeg', '-v', 'error', '-y', '-i', dst, '-frames:v', '1',

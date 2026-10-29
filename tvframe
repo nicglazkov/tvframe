@@ -1,0 +1,376 @@
+#!/usr/bin/env bash
+# TV Frame: set up and run the server, and put the app on the TV. ./tvframe help lists the commands.
+set -euo pipefail
+cd "$(dirname "$(readlink -f "$0")")"
+T="$PWD"
+# the settings folder: what setup wrote to .env, else the usual place
+CONF_DIR="${TVFRAME_CONFIG_DIR:-$(sed -n 's/^TVFRAME_CONFIG_DIR=//p' .env 2>/dev/null | tail -1)}"
+CONF_DIR="${CONF_DIR:-$HOME/.config/tvframe}"
+CONF="$CONF_DIR/config.env"
+YES=0
+
+# ------------------------------------------------------------------------------------------------ output
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+  B=$'\e[1m'; D=$'\e[2m'; G=$'\e[32m'; Y=$'\e[33m'; R=$'\e[31m'; N=$'\e[0m'
+else B=""; D=""; G=""; Y=""; R=""; N=""; fi
+STEP=0
+step() { STEP=$((STEP + 1)); printf '\n%s%d. %s%s\n' "$B" "$STEP" "$1" "$N"; }
+ok()   { printf '   %s✓%s %s\n' "$G" "$N" "$1"; }
+note() { printf '   %s\n' "$1"; }
+warn() { printf '   %s!%s %s\n' "$Y" "$N" "$1"; }
+die()  { printf '\n%sStopped:%s %s\n' "$R" "$N" "$1" >&2; exit 1; }
+
+ask() {   # ask <variable> <question> <default>
+  local a
+  if [ "$YES" = 1 ] || [ ! -r /dev/tty ]; then printf -v "$1" %s "$3"; return; fi
+  read -r -p "   $2${3:+ ${D}[$3]${N}}: " a </dev/tty || true
+  printf -v "$1" %s "${a:-$3}"
+}
+yesno() {   # yesno <question> <y|n>: true for yes
+  local a
+  if [ "$YES" = 1 ] || [ ! -r /dev/tty ]; then a="$2"
+  else read -r -p "   $1 ${D}[$([ "$2" = y ] && echo Y/n || echo y/N)]${N}: " a </dev/tty || true; a="${a:-$2}"; fi
+  case "$a" in [Yy]*) return 0 ;; *) return 1 ;; esac
+}
+
+# ------------------------------------------------------------------------------------------------ settings
+getconf() { [ -f "$CONF" ] && sed -n "s/^$1=//p" "$CONF" | tail -1 | sed 's/^"\(.*\)"$/\1/' || true; }
+setconf() {   # setconf KEY value: change the line, or add it
+  local v="$2"
+  case "$v" in *[[:space:]]*) v="\"$v\"" ;; esac
+  mkdir -p "$CONF_DIR"; touch "$CONF"; chmod 600 "$CONF"
+  if grep -q "^$1=" "$CONF"; then
+    awk -v k="$1" -v v="$v" 'index($0, k "=") == 1 { print k "=" v; next } { print }' "$CONF" > "$CONF.tmp" && mv "$CONF.tmp" "$CONF"
+  else echo "$1=$v" >> "$CONF"; fi
+}
+setenv() {   # the same for .env, which docker compose reads
+  touch .env
+  if grep -q "^$1=" .env; then
+    awk -v k="$1" -v v="$2" 'index($0, k "=") == 1 { print k "=" v; next } { print }' .env > .env.tmp && mv .env.tmp .env
+  else echo "$1=$2" >> .env; fi
+}
+
+# ------------------------------------------------------------------------------------------------ docker
+dc() { docker compose "$@"; }
+box() { dc exec -T tvframe "$@"; }      # run a command in the running server
+running() { [ -n "$(dc ps -q --status running tvframe 2>/dev/null)" ]; }
+need_running() { running || die "The server is not running. Start it with: ./tvframe start"; }
+
+check_docker() {
+  command -v docker >/dev/null || {
+    note "TV Frame runs in Docker, which is not installed here."
+    if [ "$(uname)" = Linux ] && yesno "Install Docker now with Docker's own script (asks for your password)?" y; then
+      curl -fsSL https://get.docker.com | sudo sh
+      sudo usermod -aG docker "$USER"
+      die "Docker is installed. Log out and back in (so your account can use it), then run ./tvframe setup again."
+    fi
+    die "Install Docker (https://docs.docker.com/engine/install/), then run ./tvframe setup again."
+  }
+  docker compose version >/dev/null 2>&1 || die "Docker Compose is missing. Install the docker-compose-plugin package (https://docs.docker.com/compose/install/linux/)."
+  docker info >/dev/null 2>&1 || die "This account cannot use Docker. Run: sudo usermod -aG docker $USER, log out and back in, then run ./tvframe setup again."
+  ok "Docker $(docker version -f '{{.Server.Version}}' 2>/dev/null), Compose $(docker compose version --short)"
+}
+
+gpu_test() { docker run --rm "$@" -e NVIDIA_DRIVER_CAPABILITIES=utility ubuntu:24.04 nvidia-smi -L >/dev/null 2>&1; }
+
+check_gpu() {
+  GPU_MODE=cpu
+  if command -v nvidia-smi >/dev/null && nvidia-smi -L >/dev/null 2>&1; then
+    local name; name="$(nvidia-smi --query-gpu=name --format=csv,noheader | head -1)"
+    ok "NVIDIA GPU: $name"
+    docker image inspect ubuntu:24.04 >/dev/null 2>&1 || docker pull -q ubuntu:24.04 >/dev/null
+    if gpu_test --gpus all; then GPU_MODE=gpus
+    elif gpu_test --runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=all; then GPU_MODE=runtime
+    else
+      warn "Docker cannot reach the GPU yet: the NVIDIA Container Toolkit is missing or not set up."
+      if command -v apt-get >/dev/null && yesno "Install the NVIDIA Container Toolkit now (asks for your password)?" y; then
+        curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
+          | sudo gpg --dearmor --yes -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+        curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
+          | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
+          | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list >/dev/null
+        sudo apt-get update -qq && sudo apt-get install -y -qq nvidia-container-toolkit
+        sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart docker
+        if gpu_test --gpus all; then GPU_MODE=gpus; elif gpu_test --runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=all; then GPU_MODE=runtime; fi
+      else
+        note "Guide: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html"
+      fi
+    fi
+    if [ "$GPU_MODE" = cpu ]; then warn "Going on without the GPU for now. Run ./tvframe setup again once Docker can use it."
+    else ok "Docker can use the GPU: photos are scored and encoded on it"; fi
+  elif ls /dev/dri/renderD* >/dev/null 2>&1; then
+    note "No NVIDIA GPU here. TV Frame will score and encode on the CPU: the first build of a big library"
+    note "takes hours instead of minutes, later ones only redo what changed. (AMD and Intel GPUs are not used yet.)"
+  else
+    note "No GPU here. TV Frame will score and encode on the CPU: slower, the same results."
+  fi
+  case "$GPU_MODE" in
+    gpus) printf '%s\n' "# Written by ./tvframe setup: the server uses the NVIDIA GPU." "services:" "  tvframe:" \
+            "    deploy:" "      resources:" "        reservations:" "          devices:" \
+            "            - driver: nvidia" "              count: all" "              capabilities: [gpu]" > compose.override.yaml ;;
+    runtime) printf '%s\n' "# Written by ./tvframe setup: the server uses the NVIDIA GPU." "services:" "  tvframe:" \
+            "    runtime: nvidia" "    environment:" "      NVIDIA_VISIBLE_DEVICES: all" > compose.override.yaml ;;
+    *) rm -f compose.override.yaml ;;
+  esac
+  setenv TVFRAME_TORCH "$([ "$GPU_MODE" = cpu ] && echo cpu || echo cu128)"
+}
+
+lan_ip() {
+  ip route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($i == "src") { print $(i + 1); exit }}' \
+    || true
+}
+host_tz() {
+  timedatectl show -p Timezone --value 2>/dev/null || cat /etc/timezone 2>/dev/null \
+    || readlink /etc/localtime 2>/dev/null | sed 's|.*/zoneinfo/||' || echo UTC
+}
+
+port() { local p; p="$(sed -n "s/^TVFRAME_PORT_$1=//p" .env 2>/dev/null | tail -1)"; echo "${p:-$2}"; }
+wait_up() {
+  local i
+  for i in $(seq 1 60); do
+    curl -fsS -o /dev/null "http://127.0.0.1:$(port WEB 8150)/" 2>/dev/null \
+      && curl -s -o /dev/null "http://127.0.0.1:$(port API 8153)/" 2>/dev/null && return 0
+    sleep 2
+  done
+  return 1
+}
+
+get_server() {   # a published image when .env names one (TVFRAME_IMAGE), else build it here
+  if grep -q '^TVFRAME_IMAGE=' .env 2>/dev/null; then dc pull tvframe; else dc build tvframe; fi
+}
+
+# ------------------------------------------------------------------------------------------------ setup
+cmd_setup() {
+  printf '%sTV Frame setup%s\n' "$B" "$N"
+  note "Sets up the server on this computer. Nothing here touches the TV yet: ./tvframe tv does that after."
+
+  step "Checking Docker"
+  check_docker
+
+  step "Looking for a GPU"
+  check_gpu
+
+  step "Your settings"
+  local keep=n library place tz host lat="" lon="" name="" geo
+  if [ -s "$CONF" ] && yesno "Settings found in $CONF. Keep them?" y; then keep=y; ok "kept"; fi
+  ask library "Where are your photos? (each folder in it shows on the TV as a group)" "$(getconf TVFRAME_LIBRARY_DIR || true)"
+  [ -n "$library" ] || library="$T/library"
+  library="$(cd "$(dirname "$library")" 2>/dev/null && echo "$PWD/$(basename "$library")" || echo "$library")"
+  mkdir -p "$library" || die "Cannot make $library"
+  ok "photos: $library ($(find "$library" -type f 2>/dev/null | wc -l | tr -d ' ') files)"
+  if [ "$keep" = n ]; then
+    ask place "Your town, for the weather on the TV (leave empty to skip)" ""
+    if [ -n "$place" ]; then
+      geo="$(curl -fsS "https://geocoding-api.open-meteo.com/v1/search?count=1&name=$(printf %s "$place" | sed 's/ /+/g')" || true)"
+      lat="$(printf %s "$geo" | grep -o '"latitude":[-0-9.]*' | head -1 | cut -d: -f2)"
+      lon="$(printf %s "$geo" | grep -o '"longitude":[-0-9.]*' | head -1 | cut -d: -f2)"
+      name="$(printf %s "$geo" | grep -o '"name":"[^"]*"' | head -1 | cut -d'"' -f4)"
+      tz="$(printf %s "$geo" | grep -o '"timezone":"[^"]*"' | head -1 | cut -d'"' -f4)"
+      if [ -n "$lat" ]; then ok "found $name ($lat, $lon)"; else warn "could not find \"$place\"; no weather for now (LIVE_LAT and LIVE_LON in $CONF)"; fi
+    fi
+    ask tz "Time zone" "${tz:-$(host_tz)}"
+    ask host "This computer's address on your network, as the TV will reach it" "$(lan_ip)"
+    [ -n "$host" ] || die "Need this computer's address on your network (for example 192.168.1.20)."
+    [ -f "$CONF" ] || { mkdir -p "$CONF_DIR"; sed -n '1,3p' config.example.env > "$CONF"; chmod 600 "$CONF"; }
+    setconf TVFRAME_HOST "$host"
+    setconf TVFRAME_TZ "$tz"
+    if [ -n "$lat" ]; then setconf LIVE_LAT "$lat"; setconf LIVE_LON "$lon"; setconf LIVE_PLACE "$name"; fi
+    ok "saved in $CONF"
+  fi
+  setconf TVFRAME_LIBRARY_DIR "$library"
+  setenv TVFRAME_UID "$(id -u)"; setenv TVFRAME_GID "$(id -g)"
+  setenv TVFRAME_TZ "$(getconf TVFRAME_TZ)"; setenv TVFRAME_LIBRARY "$library"; setenv TVFRAME_CONFIG_DIR "$CONF_DIR"
+  mkdir -p .home/.config/tvframe
+
+  step "Building the server"
+  note "The first time downloads about $(grep -q '^TVFRAME_TORCH=cpu' .env && echo 2 || echo 7) GB and takes a few minutes."
+  get_server
+  dc up -d
+  wait_up || die "The server did not come up. See: ./tvframe logs"
+  ok "running"
+
+  local host_now; host_now="$(getconf TVFRAME_HOST)"
+  printf '\n%sThe server is ready.%s\n' "$B" "$N"
+  note "Photo manager:  http://$host_now:$(port WEB 8150)/  (open it on your phone or laptop)"
+  note "Add photos:     put folders of photos and videos in $library"
+  note "                The first build starts within a minute and shows its progress in the photo manager."
+  echo
+  if yesno "Put TV Frame on the TV now?" y; then cmd_tv; else note "Later: ./tvframe tv"; fi
+}
+
+# ------------------------------------------------------------------------------------------------ the TV
+tv_state() { box adb -s "$1" get-state 2>/dev/null | tr -d '\r' || true; }
+
+tv_connect() {   # leaves TV set to a connected, allowed adb address
+  local tv="$1" st i pair code
+  for i in 1 2 3; do
+    box adb connect "$tv" >/dev/null 2>&1 || true
+    st="$(tv_state "$tv")"
+    [ -n "$st" ] && break
+    sleep 2
+  done
+  if [ "$st" != device ] && [ "$st" != unauthorized ]; then
+    warn "The TV did not answer on $tv."
+    note "If its Developer options has Wireless debugging: turn it on, choose Pair device with pairing code,"
+    note "and type what the TV shows. Otherwise check USB debugging is on and press Enter to try again."
+    ask pair "Pairing address shown on the TV (ip:port), or Enter to try again" ""
+    if [ -n "$pair" ]; then
+      ask code "Pairing code" ""
+      box adb pair "$pair" "$code" || die "Pairing failed. Try again: ./tvframe tv"
+      ask tv "Now the address under Wireless debugging, IP address & Port" "${pair%%:*}:"
+    fi
+    box adb connect "$tv" >/dev/null 2>&1 || true
+    st="$(tv_state "$tv")"
+  fi
+  if [ "$st" = unauthorized ] || [ -z "$st" ]; then
+    note "${B}Look at the TV:${N} allow debugging, and tick Always allow from this computer."
+    for i in $(seq 1 60); do
+      [ "$(tv_state "$tv")" = device ] && break
+      [ $((i % 5)) = 0 ] && box adb connect "$tv" >/dev/null 2>&1 || true
+      sleep 2
+    done
+  fi
+  [ "$(tv_state "$tv")" = device ] || die "Could not reach the TV at $tv. Check the address and Developer options, then: ./tvframe tv"
+  TV="$tv"
+  ok "connected to $(box adb -s "$tv" shell getprop ro.product.model | tr -d '\r') (Android $(box adb -s "$tv" shell getprop ro.build.version.release | tr -d '\r'))"
+}
+
+build_apk() {
+  local host tz url
+  host="$(getconf TVFRAME_HOST)"; tz="$(getconf TVFRAME_TZ)"
+  url="$(sed -n 's/^TVFRAME_APK_URL=//p' .env 2>/dev/null | tail -1)"
+  if [ -n "$url" ]; then                  # a released app: the same for everyone, pointed at this server after it is installed
+    mkdir -p android/app/build/outputs/apk/release
+    curl -fsSL -o android/app/build/outputs/apk/release/app-release.apk "$url" || die "Could not download $url"
+    ok "downloaded $(basename "$url")"
+    return
+  fi
+  docker image inspect tvframe-android >/dev/null 2>&1 || { note "Getting the Android build tools (once, about 1.5 GB)"; docker build -q -t tvframe-android android >/dev/null; }
+  mkdir -p .home
+  docker run --rm -u "$(id -u):$(id -g)" -e HOME=/src/.home -e GRADLE_USER_HOME=/src/.home/.gradle -v "$T":/src -w /src/android \
+    tvframe-android bash -c "tools/make-key.sh >/dev/null && ./gradlew -q --no-daemon assembleRelease -Ptvframe.server=http://$host -Ptvframe.tz=$tz" \
+    || die "The app did not build (see above)."
+  ok "built TV Frame $(sed -n 's/.*versionName = "\(.*\)"/\1/p' android/app/build.gradle.kts) for http://$host"
+}
+
+cmd_tv() {
+  [ "${1:-}" = remove ] && { shift; cmd_tv_remove "$@"; return; }
+  [ -s "$CONF" ] || die "Run ./tvframe setup first."
+  need_running
+  local host tv home=n
+  host="$(getconf TVFRAME_HOST)"
+
+  step "Connecting to the TV"
+  note "On the TV, once:"
+  note "  1. Settings > System > About: select Android TV OS build 7 times (\"You are now a developer\")."
+  note "  2. Settings > System > Developer options: turn on USB debugging."
+  note "  3. Its address: Settings > Network & Internet > your network."
+  tv="$(getconf TVFRAME_TV)"
+  ask tv "The TV's address" "${tv:-}"
+  [ -n "$tv" ] || die "Need the TV's address."
+  case "$tv" in *:*) ;; *) tv="$tv:5555" ;; esac
+  TV="$tv"; tv_connect "$tv"; tv="$TV"
+  setconf TVFRAME_TV "$tv"
+
+  step "The home screen"
+  note "TV Frame can also replace the Google TV home with a quiet one: your apps over a photo, no ads."
+  note "The Google TV home stays installed, one press away, and ./tvframe tv remove puts it back."
+  [ "$(getconf TVFRAME_QUIET_HOME)" = 1 ] && home=y
+  if yesno "Use the quiet home screen?" "$home"; then setconf TVFRAME_QUIET_HOME 1; else setconf TVFRAME_QUIET_HOME 0; fi
+
+  step "Building the TV app"
+  build_apk
+
+  step "Installing"
+  box tools/deploy.sh --install | sed 's/^/   /'
+  box adb -s "$tv" shell am start -n app.tvframe/.SettingsActivity --es server "http://$host" --ez close true >/dev/null
+  box adb -s "$tv" shell am start -n app.tvframe/.ShowActivity >/dev/null
+  ok "TV Frame is the screensaver, after 5 idle minutes; it is on screen now"
+
+  printf '\n%sDone.%s The TV shows your photos once the first build finishes (see http://%s:%s/).\n' "$B" "$N" "$host" "$(port WEB 8150)"
+  note "Press OK on the remote for a photo's details. To undo everything on the TV: ./tvframe tv remove"
+}
+
+cmd_tv_remove() {
+  need_running
+  [ -n "$(getconf TVFRAME_TV)" ] || die "No TV set up."
+  box tools/rollback.sh "$@" | sed 's/^/   /'
+  ok "The TV is back to its own screensaver and home screen$([ "${1:-}" = --uninstall ] && echo ", and the app is gone")."
+}
+
+# ------------------------------------------------------------------------------------------------ day to day
+cmd_status() {
+  dc ps --format 'table {{.Service}}\t{{.Status}}'
+  running || return 0
+  echo
+  box python3 - <<'PY'
+import json, os, sys
+sys.path.insert(0, "server")
+import tvconf, encoders
+lib = json.load(open(os.path.expanduser("~/.cache/tvframe-library.json"))) if os.path.exists(os.path.expanduser("~/.cache/tvframe-library.json")) else {}
+print(f"encoder:  {encoders.backend()}")
+print(f"library:  {lib.get('files', '?')} files, {lib.get('state', 'not watched yet')}{', last build ' + lib['last'] if lib.get('last') else ''}")
+print(f"TV:       {tvconf.TV or 'not set up (./tvframe tv)'}")
+PY
+  echo "manager:  http://$(getconf TVFRAME_HOST):$(port WEB 8150)/"
+}
+
+cmd_update() {
+  step "Getting the new version"
+  git pull --ff-only
+  step "Rebuilding the server"
+  get_server && dc up -d && wait_up && ok "running"
+  if [ -n "$(getconf TVFRAME_TV)" ]; then
+    step "Updating the TV app"
+    TV="$(getconf TVFRAME_TV)"; tv_connect "$TV"
+    build_apk
+    box tools/deploy.sh --install | sed 's/^/   /'
+  fi
+}
+
+cmd_uninstall() {
+  printf '%sRemove TV Frame from this computer%s\n' "$B" "$N"
+  note "Your photos stay where they are ($(getconf TVFRAME_LIBRARY_DIR)), and so do your settings ($CONF_DIR)."
+  yesno "Go ahead?" n || exit 0
+  if running && [ -n "$(getconf TVFRAME_TV)" ] && yesno "Also take TV Frame off the TV?" y; then cmd_tv_remove --uninstall; fi
+  dc down --rmi local
+  docker image rm tvframe-android >/dev/null 2>&1 || true
+  ok "Stopped and removed the server. Delete this folder ($T) to remove the rest."
+}
+
+usage() {
+  cat <<EOF
+${B}TV Frame${N}: your photos and clips on the TV.
+
+  ./tvframe setup          set up the server on this computer (asks a few questions)
+  ./tvframe tv             put the app on the TV, or update it
+  ./tvframe tv remove      put the TV back the way it was (add --uninstall to remove the app too)
+  ./tvframe status         what is running, the library, the TV
+  ./tvframe logs           follow the server's output
+  ./tvframe rebuild        rebuild the TV photos now
+  ./tvframe update         get the latest version, rebuild the server and the TV app
+  ./tvframe start | stop   start or stop the server
+  ./tvframe restart        restart it, after a change to config.env
+  ./tvframe uninstall      remove the server (your photos and settings stay)
+
+Add --yes to take the suggested answer to every question.
+EOF
+}
+
+args=()
+for a in "$@"; do [ "$a" = --yes ] || [ "$a" = -y ] && YES=1 || args+=("$a"); done
+set -- "${args[@]+"${args[@]}"}"
+case "${1:-help}" in
+  setup) cmd_setup ;;
+  tv) shift; cmd_tv "$@" ;;
+  status) cmd_status ;;
+  logs) shift; dc logs -f --tail 100 "$@" ;;
+  rebuild) need_running; box bash tools/library_sync.sh ;;
+  update) cmd_update ;;
+  start) dc up -d && wait_up && ok "running: http://$(getconf TVFRAME_HOST):$(port WEB 8150)/" ;;
+  stop) dc stop ;;
+  restart) dc restart tvframe && wait_up && ok "restarted" ;;
+  uninstall) cmd_uninstall ;;
+  help | -h | --help) usage ;;
+  *) usage; exit 2 ;;
+esac

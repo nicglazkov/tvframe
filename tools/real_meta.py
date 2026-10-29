@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Read your photo folders (EXIF only, via exiftool), turn GPS into place names, and write
-~/tvframe/real/items.json and ~/tvframe/real/captions.json.
+real/items.json and real/captions.json.
 
 Place names come from OpenStreetMap: Nominatim reverse lookups (zoom 17 and 14) plus an Overpass
 query for named parks, preserves, piers and landmarks that contain the point. Only coordinates are
 sent, at most about one request a second, and every answer is kept in real/geocode-cache.json so
 reruns make no requests. Photos without GPS get no place; the caption falls back to the album name.
 
-Run: python3 ~/tvframe/tools/real_meta.py  (add --offline to use only the cache)"""
+Run: python3 tools/real_meta.py  (add --offline to use only the cache)"""
 import json, os, re, subprocess, sys, time, math, urllib.request, urllib.parse
 import os as _os, sys as _sys
 _sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "server"))
@@ -15,8 +15,8 @@ import tvconf  # noqa: E402
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 
-T = os.path.expanduser('~/tvframe'); R = f'{T}/real'; C = f'{R}/geocode-cache.json'
-# Photos come from ~/tvframe/library (the "TV Photos" share and the photos page uploads). Each subfolder is
+T = tvconf.ROOT; R = f'{T}/real'; C = f'{R}/geocode-cache.json'
+# Photos come from library/ (the "TV Photos" share and the photos page uploads). Each subfolder is
 # an album; files right in the library go in "Library". The first two albums keep their old id prefixes
 # (n-, v-) so hidden photos and scores carry over from the zips they came from; see tools/library_ids.py.
 LIB = 'library'

@@ -7,6 +7,8 @@ TVFRAME_CONFIG points at a different file. Everything is optional: a missing val
 import json, os
 
 PATH = os.path.expanduser(os.environ.get("TVFRAME_CONFIG", "~/.config/tvframe/config.env"))
+# Where TV Frame lives: the code, and in folders git ignores, the library and everything built from it.
+ROOT = os.path.abspath(os.environ.get("TVFRAME_HOME") or os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 
 def _load():
@@ -55,6 +57,10 @@ HA_URL = get("HA_URL").rstrip("/")
 HA_TOKEN_FILE = path("HA_TOKEN_FILE", "~/.config/tvframe/ha_token")
 # Glance weather, air quality and sun times (optional)
 LIVE_LAT, LIVE_LON, LIVE_PLACE = get("LIVE_LAT"), get("LIVE_LON"), get("LIVE_PLACE")
+# Inside the TV Frame image (compose.yaml) every tool is at hand. Run straight on a server instead, the photo
+# scorer runs in its own container, on the GPU through these docker run flags.
+IN_DOCKER = os.environ.get("TVFRAME_IN_DOCKER") == "1"
+DOCKER_GPU = get("TVFRAME_DOCKER_GPU", "--runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=all").split()
 
 
 def ha_token():

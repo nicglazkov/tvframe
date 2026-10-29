@@ -15,6 +15,8 @@ import android.widget.ScrollView
  * typed on the remote:
  *   am start -n app.tvframe/.SettingsActivity --es url http://host:8151/playlist.json --es mode b --es codec auto
  *   am start -n app.tvframe/.SettingsActivity --es pin com.netflix.ninja,com.google.android.youtube.tv
+ *   am start -n app.tvframe/.SettingsActivity --es server http://host --ez close true   (the installer: every
+ *       address at once, and no settings page left open)
  */
 class SettingsActivity : Activity() {
     private lateinit var prefs: Prefs
@@ -25,6 +27,7 @@ class SettingsActivity : Activity() {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
         applyExtras(intent)
+        if (intent.getBooleanExtra("close", false)) { finish(); return }
         page = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(96), dp(36), dp(96), dp(36))
@@ -36,10 +39,14 @@ class SettingsActivity : Activity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         applyExtras(intent)
+        if (intent.getBooleanExtra("close", false)) { finish(); return }
         build()
     }
 
     private fun applyExtras(i: Intent) {
+        i.getStringExtra("server")?.trim()?.trimEnd('/')?.takeIf { Regex("https?://[A-Za-z0-9.-]+").matches(it) }?.let {
+            prefs.playlistUrl = "$it:8151/playlist.json"; prefs.prodUrl = "$it:8151/prod.json"; prefs.bridgeUrl = "$it:8154"
+        }
         i.getStringExtra("url")?.let { prefs.playlistUrl = it }
         i.getStringExtra("prod_url")?.let { prefs.prodUrl = it }
         i.getStringExtra("bridge_url")?.let { prefs.bridgeUrl = it }

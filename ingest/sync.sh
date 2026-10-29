@@ -8,14 +8,15 @@
 # albums.txt, one album per line:   <name>  <share link>
 #   name is a short folder name (letters, digits, - or _). Lines starting with # are skipped.
 #   A line with only a link uses the link's last part as the name.
-# Photos land in ~/tvframe/photos/albums/<name>/ (one folder per album).
+# Photos land in photos/albums/<name>/ in the checkout (one folder per album).
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
+T="$(dirname "$HERE")"
 ALBUMS="${ALBUMS:-$HERE/albums.txt}"
-DEST_ROOT="${DEST_ROOT:-$HOME/tvframe/photos/albums}"
-CURATE="${CURATE:-$HOME/tvframe/curate/run.sh}"
+DEST_ROOT="${DEST_ROOT:-$T/photos/albums}"
+CURATE="${CURATE:-$T/curate/run.sh}"
 # album scores go to their own folder so the preview site's sample scores in curate/out stay as they are
-export OUT="${OUT:-$HOME/tvframe/curate/out-albums}"
+export OUT="${OUT:-$T/curate/out-albums}"
 DELAY="${DELAY:-1}"
 DO_CURATE=1
 [ "${1:-}" = "--no-curate" ] && DO_CURATE=0

@@ -15,6 +15,14 @@
 !/caddy/
 !/curate/
 !/ingest/
+!/Dockerfile
+!/compose.yaml
+!/install.sh
+!/tvframe
+!/.github/
+!/.dockerignore
+!/LICENSE
+!/CHANGELOG.md
 
 /android/*
 !/android/app/
@@ -24,6 +32,7 @@
 !/android/gradle.properties
 !/android/gradlew
 !/android/gradlew.bat
+!/android/Dockerfile
 !/android/tools/
 /android/app/build/
 /android/tools/gtv_audit.py
@@ -77,10 +86,11 @@
 !/tools/sync_data.py
 !/tools/watchdog.py
 !/tools/deploy.sh
+!/tools/env.sh
+!/tools/services.py
 !/tools/rollback.sh
 !/tools/keepmute.sh
 !/tools/library_sync.sh
-!/tools/real_build.sh
 !/tools/fakekey.sh
 !/tools/startdream.sh
 /tools/geo/*.json

@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""Watch ~/tvframe/library and run tools/library_sync.sh after it changes.
+"""Watch library/ and run tools/library_sync.sh after it changes.
 
 Checks every 15 s. A failed build is retried every 10 minutes. A change (a file added, removed, renamed or rewritten) starts a 45 s quiet period so a big
 copy from Finder finishes first; every further change restarts it. Runs as the systemd --user unit
 tvframe-library. Status for the photos page: ~/.cache/tvframe-library.json."""
 import json, os, subprocess, time
 from datetime import datetime
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "server"))
+import tvconf  # noqa: E402
 
-T = os.path.expanduser("~/tvframe")
+T = tvconf.ROOT
 LIB = f"{T}/library"
 STATUS = os.path.expanduser("~/.cache/tvframe-library.json")
 QUIET = 45
@@ -46,6 +49,9 @@ def main():
     status(state="idle", files=len(built))
     log(f"watching {LIB}, {len(built)} files")
     seen, changed_at = built, None
+    if built and not os.path.exists(f"{T}/site/data/manifest.json"):     # a new install: build what is there now
+        built, changed_at = [], time.time() - QUIET
+        log("nothing built yet: building now")
     while True:
         time.sleep(15)
         now = snapshot()

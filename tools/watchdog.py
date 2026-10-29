@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""TV Frame watchdog: every 5 minutes (systemd --user timer tvframe-watchdog), check the Streamer still runs
+"""TV Frame watchdog: every 5 minutes (systemd --user timer tvframe-watchdog), check the TV still runs
 TV Frame the way tools/deploy.sh left it, put back anything an update or a reset turned off, and say what was
 fixed in a plain phone notification through Home Assistant (HA_NOTIFY in config.env, e.g. notify.mobile_app_phone).
 
@@ -8,23 +8,24 @@ app is installed at the version built on the server. It never installs anything:
 reported. Pause it with `touch ~/.config/tvframe/watchdog.pause` (for example while changing settings on
 purpose); delete the file to resume. State and the last result: ~/.cache/tvframe-watchdog.json.
 """
-import json, os, re, subprocess, sys, time, urllib.request
+import json, os, re, shutil, subprocess, sys, time, urllib.request
 from datetime import datetime
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "server"))
 import tvconf  # noqa: E402
 
 HOME = os.path.expanduser("~")
-ADB = [os.environ.get("ADB_BIN", f"{HOME}/android/sdk/platform-tools/adb"), "-s", tvconf.TV]
+ADB = [os.environ.get("ADB_BIN") or shutil.which("adb") or f"{HOME}/android/sdk/platform-tools/adb", "-s", tvconf.TV]
 SVC = "app.tvframe/app.tvframe.HomeKeyService"
+QUIET_HOME = tvconf.get("TVFRAME_QUIET_HOME", "1") != "0"
 DREAM = "app.tvframe/.FrameDreamService"
 TIMEOUT = "300000"
-APK_META = f"{HOME}/tvframe/android/app/build/outputs/apk/release/output-metadata.json"
+APK_META = os.path.join(tvconf.ROOT, "android/app/build/outputs/apk/release/output-metadata.json")
 PAUSE = f"{HOME}/.config/tvframe/watchdog.pause"
 STATE = f"{HOME}/.cache/tvframe-watchdog.json"
 HA = f"{tvconf.HA_URL}/api/services/{tvconf.get('HA_NOTIFY').replace('.', '/')}" if tvconf.HA_URL and tvconf.get("HA_NOTIFY") else None
 QUIET = 6 * 3600          # the same problem is reported at most once in 6 hours
-OFFLINE_AFTER = 3600      # say the Streamer is unreachable only after an hour of failed checks
+OFFLINE_AFTER = 3600      # say the TV is unreachable only after an hour of failed checks
 
 
 def log(*a):
@@ -49,7 +50,7 @@ def notify(msg):
 
 def built_version():
     """The version of the last APK built, once it is half an hour old, so a build that is about to be installed
-    is not reported as missing from the Streamer."""
+    is not reported as missing from the TV."""
     try:
         if time.time() - os.path.getmtime(APK_META) < 1800:
             return None
@@ -67,24 +68,25 @@ def check():
     fixed, problems = [], []
     m = re.search(r"versionName=(\S+)", sh("dumpsys", "package", "app.tvframe"))
     if not m:
-        return fixed, ["The TV Frame app is not installed on the Streamer any more. Nothing was changed."]
+        return fixed, ["The TV Frame app is not installed on the TV any more. Nothing was changed."]
     want = built_version()
     if want and vkey(m.group(1)) < vkey(want):
-        problems.append(f"The Streamer has TV Frame {m.group(1)}, older than {want}. Nothing was changed.")
+        problems.append(f"The TV has TV Frame {m.group(1)}, older than {want}. Nothing was changed.")
 
-    cur = sh("settings", "get", "secure", "enabled_accessibility_services")
-    parts = [p for p in cur.split(":") if p and p != "null"]
-    on = sh("settings", "get", "secure", "accessibility_enabled") == "1"
-    if SVC not in parts or not on:
-        sh("settings", "put", "secure", "enabled_accessibility_services", ":".join([p for p in parts if p != SVC] + [SVC]))
-        sh("settings", "put", "secure", "accessibility_enabled", "1")
-        fixed.append("the Home button service was off")
-    elif "TV Frame home button" not in sh("dumpsys", "accessibility").split("Bound services:")[-1].split("\n")[0]:
-        # turned on but not running (crashed or not rebound after an update): turning it off and on rebinds it
-        sh("settings", "put", "secure", "enabled_accessibility_services", ":".join([p for p in parts if p != SVC]) or "null")
-        time.sleep(1)
-        sh("settings", "put", "secure", "enabled_accessibility_services", ":".join(parts))
-        fixed.append("the Home button service had stopped")
+    if QUIET_HOME:                     # the quiet home screen was chosen (TVFRAME_QUIET_HOME)
+        cur = sh("settings", "get", "secure", "enabled_accessibility_services")
+        parts = [p for p in cur.split(":") if p and p != "null"]
+        on = sh("settings", "get", "secure", "accessibility_enabled") == "1"
+        if SVC not in parts or not on:
+            sh("settings", "put", "secure", "enabled_accessibility_services", ":".join([p for p in parts if p != SVC] + [SVC]))
+            sh("settings", "put", "secure", "accessibility_enabled", "1")
+            fixed.append("the Home button service was off")
+        elif "TV Frame home button" not in sh("dumpsys", "accessibility").split("Bound services:")[-1].split("\n")[0]:
+            # turned on but not running (crashed or not rebound after an update): turning it off and on rebinds it
+            sh("settings", "put", "secure", "enabled_accessibility_services", ":".join([p for p in parts if p != SVC]) or "null")
+            time.sleep(1)
+            sh("settings", "put", "secure", "enabled_accessibility_services", ":".join(parts))
+            fixed.append("the Home button service had stopped")
 
     if sh("settings", "get", "secure", "screensaver_components") != DREAM or sh("settings", "get", "secure", "screensaver_enabled") != "1":
         sh("settings", "put", "secure", "screensaver_components", DREAM)
@@ -115,14 +117,14 @@ def main():
             log("Streamer unreachable:", e)
             if now - st["offline_since"] > OFFLINE_AFTER and not st.get("offline_told"):
                 try:
-                    notify("The Streamer has not answered for an hour, so its settings are not being checked.")
+                    notify("The TV has not answered for an hour, so its settings are not being checked.")
                     st["offline_told"] = True
                 except Exception as e2:
                     log("notify failed:", e2)
         else:
             if st.pop("offline_told", None):
                 try:
-                    notify("The Streamer answers again.")
+                    notify("The TV answers again.")
                 except Exception as e2:
                     log("notify failed:", e2)
             st.pop("offline_since", None)

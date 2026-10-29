@@ -598,7 +598,7 @@ def main():
     off = hidden_ids() | out_of_season()
     cscores, cboost, shown = clip_scores(), boosts(), shown_ids()
     try:   # the settings line under a clip's caption: '4K · 60 fps · Dolby Vision' (tools/clip_look.py)
-        looks = json.load(open(os.path.expanduser("~/tvframe/real/clip_look.json"))).get("clips", {})
+        looks = json.load(open(os.path.join(tvconf.ROOT, "real/clip_look.json"))).get("clips", {})
     except (OSError, ValueError):
         looks = {}
     try:   # each clip's original length, to say when the TV shows an excerpt

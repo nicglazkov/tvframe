@@ -3,7 +3,7 @@
 
   GET /playlist.json        playlist built from cache/index.json (+ videos, + loop video)
   GET /media/<kind>/<file>  frames | hevc | av1 | kb | loop  (from cache/)
-  GET /media/videos/<file>  muted 4K clips from ~/tvframe/photos/videos/tv (if present)
+  GET /media/videos/<file>  muted 4K clips from photos/videos/tv (if present)
   GET /media/videoloop/<file>  their seamless loops and first-frame posters (tools/clip_loops.py)
   GET /status               plain health text
 

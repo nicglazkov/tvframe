@@ -5,7 +5,7 @@
 set -u
 . "$(dirname "$0")/conf.sh"
 $ADB_BIN connect "$TVFRAME_TV" >/dev/null 2>&1
-O="$HOME/tvframe/device/originals-production.txt"
+O="$T/device/originals-production.txt"
 SVC=app.tvframe/app.tvframe.HomeKeyService
 sh() { $A shell "$@" | tr -d '\r'; }
 orig() { grep -m1 "^$1=" "$O" | cut -d= -f2-; }

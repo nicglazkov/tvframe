@@ -7,7 +7,7 @@ import tvconf  # noqa: E402
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-SCHEDULE = os.path.expanduser("~/tvframe/site/data/schedule.json")
+SCHEDULE = os.path.join(tvconf.ROOT, "site/data/schedule.json")
 LA = ZoneInfo(tvconf.TZ)
 MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 

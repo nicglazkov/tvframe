@@ -1,6 +1,6 @@
 """TV Frame photos API (stdlib only), port 8153, LAN and tailnet. Backs the photo manager (site/index.html on 8150).
 
-The library is ~/tvframe/library: each folder is an album. tools/library_watch.py notices file changes there and
+The library is library/ in the checkout: each folder is an album. tools/library_watch.py notices file changes there and
 rebuilds what the TV shows (tools/library_sync.sh, a few minutes). Settings changes here (off, how often) only need
 the playlist rebuilt (server/prod_build.py, about 15 s), which this API starts by itself.
 
@@ -26,7 +26,7 @@ the playlist rebuilt (server/prod_build.py, about 15 s), which this API starts b
   GET  /full?id=I                    a small full-length copy of a clip for the trim editor (site/media/v/full), made the
                                      first time it is asked for: {state: "building", pct} until it is {state: "ready", url}
   POST /move    {album, file, to}    move a file to another folder (its settings follow it)
-  POST /remove  {album, file}        move a file to ~/tvframe/library-trash/<date>/<album>/ (recoverable)
+  POST /remove  {album, file}        move a file to library-trash/<date>/<album>/ (recoverable)
   POST /folder/new     {name}
   POST /folder/rename  {from, to}    keeps the photos' ids, so nothing is rebuilt (tools/library_ids.py)
   POST /folder/remove  {name}        moves the whole folder to library-trash
@@ -42,13 +42,14 @@ from zoneinfo import ZoneInfo
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tvconf  # noqa: E402
 
-HOME = os.path.expanduser("~/tvframe")
+HOME = tvconf.ROOT
 sys.path.insert(0, os.path.join(HOME, "tools"))
 import library_ids, season  # noqa: E402
 import real_videos  # noqa: E402
 os.environ.setdefault("TVFRAME_SET", "real")
 sys.path.insert(0, os.path.join(HOME, "server"))
 import prepare  # noqa: E402
+import encoders
 
 SITE = os.path.join(HOME, "site")
 LIB = os.path.join(HOME, "library")
@@ -346,10 +347,10 @@ def full_copy(pid):
             os.makedirs(FULL, exist_ok=True)
             info = real_videos.probe(src, pid)
             tmp = dst + ".tmp.mp4"
-            p = subprocess.Popen(["nice", "-n", "10", "ffmpeg", "-v", "error", "-y", "-progress", "pipe:1", "-nostats", *real_videos.rotate_args(pid), "-i", src,
+            p = subprocess.Popen(encoders.ffmpeg(["nice", "-n", "10", "ffmpeg", "-v", "error", "-y", "-progress", "pipe:1", "-nostats", *real_videos.rotate_args(pid), "-i", src,
                                   "-an", "-vf", f"scale=960:540:force_original_aspect_ratio=decrease:flags=bicubic,{real_videos.color(info)}format=yuv420p",
                                   "-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr", "-cq", "28", "-b:v", "0", "-maxrate", "6M", "-bufsize", "12M",
-                                  "-g", "15", "-movflags", "+faststart", tmp], stdout=subprocess.PIPE, text=True)
+                                  "-g", "15", "-movflags", "+faststart", tmp]), stdout=subprocess.PIPE, text=True)
             for line in p.stdout:                       # out_time_us=..., for the editor's progress
                 if line.startswith("out_time_us=") and info["duration"]:
                     try:

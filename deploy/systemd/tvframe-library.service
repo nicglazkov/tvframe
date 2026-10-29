@@ -1,5 +1,5 @@
 [Unit]
-Description=TV Frame: rebuild the TV photos when ~/tvframe/library changes
+Description=TV Frame: rebuild the TV photos when the library changes
 After=network-online.target
 
 [Service]

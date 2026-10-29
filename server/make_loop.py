@@ -20,6 +20,7 @@ from PIL import Image
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import photoset
+import encoders
 CACHE = photoset.cache()
 W, H = 3840, 2160
 VIDEOS = photoset.videos()
@@ -123,13 +124,13 @@ def render_chunk(job):
     cur = Source(it, fps, fade, 0.0)
     prv = Source(prev, fps, fade, prev["hold"]) if nf else None
     enc = subprocess.Popen(
-        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24",
+        encoders.ffmpeg(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24",
          "-s", f"{W}x{H}", "-r", str(fps), "-i", "-",
          "-vf", "scale=in_color_matrix=bt709:out_color_matrix=bt709:in_range=pc:out_range=tv,format=p010le",
          "-c:v", "hevc_nvenc", "-profile:v", "main10", "-preset", "p6", "-tune", "hq",
          "-rc", "vbr", "-cq", "23", "-b:v", "30M", "-maxrate", "45M", "-bufsize", "60M", "-g", str(fps * 2),
          "-bf", "2", "-tag:v", "hvc1", "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709",
-         "-an", out], stdin=subprocess.PIPE)
+         "-an", out]), stdin=subprocess.PIPE)
     t0 = time.time()
     for f in range(n):
         u = f / fps
