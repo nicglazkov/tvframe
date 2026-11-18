@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.3
+
+- **Headlines by level.** `TVFRAME_NEWS_FEEDS` lists a feed for each level of news you want, for example your town, your state, the country and the world, and Glance shows one headline at a time from each in turn, labeled with its level and source. Google News shortcuts cover local, national and world news. See [Headlines by level](docs/GUIDE.md#headlines-by-level).
+- Headlines leave out questions, advice pieces and lists ("7 ways to..."), opinion, and titles too long to fit, whatever the feed.
+- A comment after a value in `config.env` (`TVFRAME_MAPS=on   # ...`) no longer turns that setting off.
+
 ## 0.4.2
 
 - **Guest Wi-Fi when it is needed.** The guest Wi-Fi card follows a Home Assistant entity that says whether guests are over (`"guests"` in `home_entities.json`), and **Up** on the remote brings it up for 5 minutes in any case. `TVFRAME_GUEST_WIFI` picks `auto`, `always` or `button`. While it is away, its place cycles through the headlines (when they are on). See [Guest Wi-Fi card](docs/GUIDE.md#guest-wi-fi-card), which also documents the card's file for the first time.

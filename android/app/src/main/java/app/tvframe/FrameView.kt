@@ -545,8 +545,8 @@ class FrameView(ctx: Context, private val role: Role = Role.SHOW, private val la
         return w.optBoolean("show", true) || SystemClock.elapsedRealtime() < wifiUntil
     }
 
-    private fun newsItems(): List<String> =
-        live()?.optJSONObject("news")?.optJSONArray("items").objs().map { it.optString("title") }.filter { it.isNotEmpty() && it.length <= 84 }
+    private fun newsItems(): List<JSONObject> =
+        live()?.optJSONObject("news")?.optJSONArray("items").objs().filter { it.optString("title").let { t -> t.isNotEmpty() && t.length <= 84 } }
 
     /** With the guest Wi-Fi card away (no guests over), its place cycles through the headlines. */
     private fun newsColumnOn(): Boolean = !wifiShown() && newsItems().isNotEmpty()
@@ -819,10 +819,12 @@ class FrameView(ctx: Context, private val role: Role = Role.SHOW, private val la
             st.add(p.height(scene.scale, scene.glow), 12f * ss) { y -> p.also { it.y = y } }
             return
         }
-        val src = live()?.optJSONObject("news")?.optString("source", "News") ?: "News"
-        val label = "$src headlines  ${ix % items.size + 1} of ${items.size}"
+        val item = items[ix % items.size]
+        val level = item.optString("level")
+        val label = if (level.isNotEmpty()) listOf(level, item.optString("source")).filter { it.isNotEmpty() }.distinct().joinToString("  ·  ")
+            else "${live()?.optJSONObject("news")?.optString("source", "News") ?: "News"} headlines  ${ix % items.size + 1} of ${items.size}"
         st.add(lh(kSt)) { y -> TextNode(label, kSt, st.x, y, anchorBaseline = false, maxW = st.w) }
-        val p = ParaNode(items[ix % items.size], TStyle(Fonts.Face.SANS, 56f * ts, lineHeight = 1.18f), st.x, 0f, st.w, maxLines = 3)
+        val p = ParaNode(item.optString("title"), TStyle(Fonts.Face.SANS, 56f * ts, lineHeight = 1.18f), st.x, 0f, st.w, maxLines = 3)
         st.add(p.height(scene.scale, scene.glow), 0f) { y -> p.also { it.y = y } }
     }
 

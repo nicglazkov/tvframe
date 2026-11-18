@@ -123,6 +123,7 @@ Everything lives in `~/.config/tvframe/config.env`, written by `setup` and safe 
 | `TVFRAME_ENCODER` | `auto` (the default: NVENC when it works, else the CPU), `nvenc` or `cpu`. |
 | `HA_URL`, `HA_TOKEN_FILE`, `HA_ENTITIES`, `HA_NOTIFY` | Home Assistant, all optional. See below. |
 | `TVFRAME_GUEST_WIFI` | When the [guest Wi-Fi card](#guest-wi-fi-card) shows: `auto` (the default), `always` or `button`. |
+| `TVFRAME_NEWS_FEEDS` | [Headlines by level](#headlines-by-level), for example local, state, national and world. Empty: NPR's top stories. |
 
 Two more files sit next to the checkout and are written by `setup`: `.env` (the folders Docker mounts, your user id, which image to use) and, with an NVIDIA card, `compose.override.yaml`.
 
@@ -133,7 +134,7 @@ TV Frame needs no account and works without the internet. Four extras use free o
 | Setting | What you get | Service | What it is sent |
 | --- | --- | --- | --- |
 | `TVFRAME_WEATHER` | Weather and air quality on Glance, and the town lookup during setup | [Open-Meteo](https://open-meteo.com) | Your town's location (`LIVE_LAT`, `LIVE_LON`) |
-| `TVFRAME_HEADLINES` | The headline tile | [NPR](https://www.npr.org) top stories feed | Nothing beyond the request |
+| `TVFRAME_HEADLINES` | Headlines on Glance | [NPR](https://www.npr.org) top stories feed, or [your own feeds](#headlines-by-level) | Nothing beyond the request (Google News feeds for a place are sent that place) |
 | `TVFRAME_PLACES` | Place names under photos that have a location | [OpenStreetMap](https://www.openstreetmap.org) Nominatim and Overpass | Each photo's location, rounded to about 100 m |
 | `TVFRAME_MAPS` | Satellite maps in the details panel | [Esri World Imagery](https://www.arcgis.com/home/item.html?id=10df2279f9684e4a9f6a7f08febac2a9) | The map area around each photo |
 
@@ -143,6 +144,16 @@ TV Frame needs no account and works without the internet. Four extras use free o
 2. Run `./tvframe restart`. For places and maps, also run `./tvframe rebuild`.
 
 Turned off, weather and headlines disappear from the TV within 20 minutes, and maps are deleted at the next rebuild. Place names already looked up stay in the captions; delete `real/geocode-cache.json` and rebuild to drop them too. Photos without a location never cause a lookup, and results are cached so each place is asked about once.
+
+### Headlines by level
+
+Instead of NPR's top stories, Glance can cycle through a few levels of news, one headline at a time: the first story from each level, then the second from each, and so on. Each headline is labeled with its level and source. Set `TVFRAME_NEWS_FEEDS` in `config.env` to `Label=feed` pairs separated by `;`, in the order you want them:
+
+```
+TVFRAME_NEWS_FEEDS="Local=google:Springfield, Illinois; Illinois=https://example.org/feed/; U.S.=google:US; World=https://feeds.bbci.co.uk/news/world/rss.xml"
+```
+
+A feed is any RSS address, or one of the Google News shortcuts: `google:US`, `google:WORLD`, or `google:<town, state>` for local stories (Google News is then sent that town). Up to three headlines come from each level. Questions, advice pieces ("7 ways to..."), lists, opinion and titles too long for the screen are left out. Changes show within 20 minutes.
 
 **Google Photos shared albums** ([`ingest/`](../ingest/README.md)) are a separate, manual tool: nothing runs it unless you set it up yourself. Read the note at the top of its README first.
 

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Fetch the live glance data (no API keys) and write site/data/live.json.
 Weather and air quality: Open-Meteo, for LIVE_LAT/LIVE_LON in config.env, only with TVFRAME_WEATHER=on.
-Headlines: NPR's public top-stories RSS, only with TVFRAME_HEADLINES=on.
+Headlines: NPR's public top-stories RSS, or the feeds in TVFRAME_NEWS_FEEDS, only with TVFRAME_HEADLINES=on.
 Sun times and golden hour are computed here, with no network. Nothing about the household is sent anywhere.
 Cron runs it every 20 minutes; a failed source keeps the last good value."""
-import json, math, os, urllib.parse, urllib.request, xml.etree.ElementTree as ET
+import json, math, os, re, urllib.parse, urllib.request, xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, date
 from zoneinfo import ZoneInfo
 import sys
@@ -45,11 +45,61 @@ if tvconf.WEATHER:
         out['sources']['air'] = 'Open-Meteo air quality (CAMS)'
     except Exception as e:
         print('air failed', e); out['air'] = old.get('air')
+# Headlines: one feed per level (TVFRAME_NEWS_FEEDS, "Label=feed; Label=feed"), shown in turn, or NPR's top stories.
+# A feed is an RSS address, or google:US, google:WORLD or google:<place> for Google News. Advice pieces, lists,
+# questions, opinion and very long titles are left out: the TV has room for about three short lines.
+GOOGLE = 'https://news.google.com/rss/headlines/section/{}?hl=en-US&gl=US&ceid=US:en'
+SKIP = re.compile(r"\?|^(op-?ed|opinion|commentary|editorial|analysis|letters?|list|watch|video|photos|quiz|podcast)\b|"
+                  r"\b\d+ (ways|things|tips|reasons|signs|questions|best|places)\b|\bhow to\b|\bwhat (to|you need to) know\b|"
+                  r"\bhere'?s\b|\byou(r|'re|'ll)?\b", re.I)
+SPANISH = {'de', 'la', 'que', 'los', 'las', 'el', 'del', 'por', 'para', 'con', 'una', 'en'}
+
+
+def feed_url(f):
+    if not f.startswith('google:'):
+        return f
+    f = f[7:].strip()
+    return GOOGLE.format({'US': 'topic/NATION', 'WORLD': 'topic/WORLD'}.get(f.upper(), 'geo/' + urllib.parse.quote(f)))
+
+
+def headlines(label, f, n=3):
+    x = ET.fromstring(get(feed_url(f), raw=True))
+    name = ' '.join((x.findtext('channel/title') or '').split()[:3])  # "BBC News", "CalMatters"; Google News names each story's source
+    got = []
+    for i in x.iter('item'):
+        t = ' '.join((i.findtext('title') or '').split())
+        src = (i.findtext('source') or '').strip()
+        if src and t.endswith(' - ' + src):
+            t = t[:-len(src) - 3]
+        if not t or len(t) > 80 or SKIP.search(t) or len(SPANISH & set(t.lower().split())) >= 2:
+            continue
+        got.append({'title': t, 'date': i.findtext('pubDate'), 'level': label, 'source': src or name})
+        if len(got) == n:
+            break
+    return got
+
+
 if tvconf.HEADLINES:
+    levels = [tuple(p.strip() for p in x.split('=', 1)) for x in tvconf.NEWS_FEEDS.split(';') if '=' in x]
     try:
-        x = ET.fromstring(get('https://feeds.npr.org/1001/rss.xml', raw=True))
-        out['news'] = {'source': 'NPR', 'items': [{'title': (i.findtext('title') or '').strip(), 'date': i.findtext('pubDate')} for i in x.iter('item')][:6]}
-        out['sources']['news'] = 'NPR top stories RSS'
+        if levels:
+            per, seen = [], set()
+            for label, f in levels:
+                try:
+                    per.append([h for h in headlines(label, f) if h['title'].lower() not in seen])
+                    seen.update(h['title'].lower() for h in per[-1])
+                except Exception as e:
+                    print('news failed', label, e)
+                    per.append([h for h in (old.get('news') or {}).get('items', []) if h.get('level') == label])
+            items = [lv[k] for k in range(3) for lv in per if k < len(lv)]  # first story at each level, then the second...
+            if not items:
+                raise ValueError('no headlines from any level')
+            out['news'] = {'source': 'News', 'items': items}
+            out['sources']['news'] = ', '.join(label for label, _ in levels) + ' (TVFRAME_NEWS_FEEDS)'
+        else:
+            out['news'] = {'source': 'NPR', 'items': [{k: v for k, v in h.items() if k in ('title', 'date')}
+                                                      for h in headlines('NPR', 'https://feeds.npr.org/1001/rss.xml', 6)]}
+            out['sources']['news'] = 'NPR top stories RSS'
     except Exception as e:
         print('news failed', e); out['news'] = old.get('news')
 

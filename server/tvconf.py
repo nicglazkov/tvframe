@@ -4,7 +4,7 @@ They live outside the repo in ~/.config/tvframe/config.env (KEY=value lines; see
 carries nothing about the house it runs in. An environment variable of the same name wins over the file, and
 TVFRAME_CONFIG points at a different file. Everything is optional: a missing value turns its feature off.
 """
-import json, os
+import json, os, re
 
 PATH = os.path.expanduser(os.environ.get("TVFRAME_CONFIG", "~/.config/tvframe/config.env"))
 # Where TV Frame lives: the code, and in folders git ignores, the library and everything built from it.
@@ -21,6 +21,8 @@ def _load():
                 v = v.strip()
                 if len(v) > 1 and v[0] == v[-1] and v[0] in "'\"":
                     v = v[1:-1]
+                else:
+                    v = re.split(r"\s+#", v, 1)[0]  # a comment after the value
                 d[k.strip()] = v
     except OSError:
         pass
@@ -74,6 +76,9 @@ def on(key):
 # The online extras. Each is off unless its line says on; while off, TV Frame never contacts that service.
 WEATHER = on("TVFRAME_WEATHER")       # Open-Meteo: weather and air quality
 HEADLINES = on("TVFRAME_HEADLINES")   # NPR top stories RSS
+# Headlines by level, shown in turn: "Label=feed; Label=feed", each feed an RSS address or google:US, google:WORLD
+# or google:<place> (Google News). Empty: NPR's top stories.
+NEWS_FEEDS = get("TVFRAME_NEWS_FEEDS")
 PLACES = on("TVFRAME_PLACES")         # OpenStreetMap Nominatim and Overpass: place names for photo locations
 MAPS = on("TVFRAME_MAPS")             # Esri World Imagery: satellite maps in the details panel
 # Inside the TV Frame image (compose.yaml) every tool is at hand. Run straight on a server instead, the photo
