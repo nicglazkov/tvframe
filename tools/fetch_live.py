@@ -64,7 +64,10 @@ def feed_url(f):
 
 def headlines(label, f, n=3):
     x = ET.fromstring(get(feed_url(f), raw=True))
-    name = ' '.join((x.findtext('channel/title') or '').split()[:3])  # "BBC News", "CalMatters"; Google News names each story's source
+    # the feed's name for the label: "BBC News", "CalMatters", "NBC Bay Area" from "Local – NBC Bay Area" (Google News
+    # names each story's source instead)
+    name = max(re.split(r'\s+[-–—|:]\s+', ' '.join((x.findtext('channel/title') or '').split())), key=len)
+    name = ' '.join(name.split()[:4])
     got = []
     for i in x.iter('item'):
         t = ' '.join((i.findtext('title') or '').split())

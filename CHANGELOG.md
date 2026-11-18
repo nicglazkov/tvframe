@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- A headline from a feed is labeled with the feed's full name ("NBC Bay Area", not "Local – NBC").
+
 ## 0.4.4
 
 - **Long headlines show whole.** Instead of being skipped or cut off with "...", a long headline is set smaller, on up to four lines in the same space.
