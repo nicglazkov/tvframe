@@ -31,7 +31,7 @@ Everything after the install: the TV, the photo manager, settings, extras and fi
 
 ### On the TV
 
-- **When it starts.** TV Frame is the TV's screensaver, so Glance comes up after 5 idle minutes. **OK** opens the details; any other button brings back what you were watching.
+- **When it starts.** TV Frame is the TV's screensaver, so Glance comes up after 5 idle minutes. **OK** opens the details, **Up** shows the guest Wi-Fi card (if you set one up), and any other button brings back what you were watching.
 - **The details panel** for the photo on screen: where and when, camera and lens, exposure, and a small satellite map when the photo has a location. **OK** or **Back** closes it.
 - **The quiet home screen** (if you chose it) opens on **Home**. Arrow keys move between apps, **OK** opens one. The Google TV home is still installed and comes back with `./tvframe tv remove`.
 - **Offline.** The app keeps a copy of the stills on the TV. If the server is off, the frame keeps showing what it has.
@@ -122,6 +122,7 @@ Everything lives in `~/.config/tvframe/config.env`, written by `setup` and safe 
 | `TVFRAME_QUIET_HOME` | `1` for the quiet home screen, `0` to leave the Google TV home alone. Set by `./tvframe tv`. |
 | `TVFRAME_ENCODER` | `auto` (the default: NVENC when it works, else the CPU), `nvenc` or `cpu`. |
 | `HA_URL`, `HA_TOKEN_FILE`, `HA_ENTITIES`, `HA_NOTIFY` | Home Assistant, all optional. See below. |
+| `TVFRAME_GUEST_WIFI` | When the [guest Wi-Fi card](#guest-wi-fi-card) shows: `auto` (the default), `always` or `button`. |
 
 Two more files sit next to the checkout and are written by `setup`: `.env` (the folders Docker mounts, your user id, which image to use) and, with an NVIDIA card, `compose.override.yaml`.
 
@@ -148,9 +149,28 @@ Turned off, weather and headlines disappear from the TV within 20 minutes, and m
 ## Optional extras
 
 - **Home Assistant.** Put a long-lived access token in `~/.config/tvframe/ha_token` (chmod 600), set `HA_URL`, and copy [`home_entities.example.json`](../home_entities.example.json) to `~/.config/tvframe/home_entities.json` with your own entities. Glance then shows the inside temperature and humidity and the laundry while it runs, the quiet home screen shows what your speakers are playing, and the watchdog sends a phone notification when it had to fix the TV. The token never leaves the server: the TV only talks to TV Frame's bridge.
+- **Guest Wi-Fi card.** See [below](#guest-wi-fi-card).
 - **Google Photos shared albums.** [`ingest/README.md`](../ingest/README.md) pulls shared albums into folders on a schedule.
 - **iPhone uploads.** The manager's menu has Send photos from iPhone: a share sheet shortcut that uploads straight into a folder.
 - **Sony S-Log3 video.** Put Sony's S-Log3 (S-Gamut3.Cine) to Rec.709 LUT, as a 33-point `.cube` file, at `tools/slog3_709.cube` and ungraded clips get it applied. Without it they play as shot.
+
+### Guest Wi-Fi card
+
+Glance can show a QR code that joins your guest network, with the network's name beside it. Phones join by pointing the camera at it. It appears once `~/.config/tvframe/wifi_qr.json` (chmod 600) exists, in this form:
+
+```json
+{"ssid": "Guest network name", "qr": ["0101...", "1100...", "..."]}
+```
+
+`qr` is the QR code of the standard Wi-Fi string `WIFI:T:WPA;S:<name>;P:<password>;;`, one string of `0` (light) and `1` (dark) per row, with no quiet zone. Any QR library can make it, for example Python's `segno`: `[''.join('1' if c else '0' for c in row) for row in segno.make(s, error='m').matrix]`.
+
+When it shows is `TVFRAME_GUEST_WIFI` in `config.env`:
+
+- `auto` (the default): while guests are over, if Home Assistant can tell. Add a `"guests"` entity to `home_entities.json`: a binary sensor or switch that is on, a person or device tracker that is home, or a count above zero all mean guests are over. Without one, or while Home Assistant cannot be reached, the card always shows.
+- `always`: always.
+- `button`: only when someone asks for it.
+
+In every mode, **Up** on the remote brings the card up for 5 minutes, and **Up** again puts it away. While the card is away and headlines are on, its place cycles through the day's headlines instead.
 
 ## Troubleshooting
 

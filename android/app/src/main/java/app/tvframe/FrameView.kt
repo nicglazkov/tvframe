@@ -48,6 +48,11 @@ fun clipShowMs(item: Item): Long {
 const val DETAILS_OPEN_MS = 30_000L
 /** After the details close, the slide stays this long with no key pressed before the show moves on. */
 const val DETAILS_AFTER_MS = 10_000L
+/** Up on the remote brings the guest Wi-Fi card up for this long (Up again puts it away sooner). */
+const val WIFI_SUMMON_MS = 5 * 60_000L
+/** The headlines column, in the guest Wi-Fi card's place while that is away, moves to the next headline this often. */
+const val NEWS_COLUMN_MS = 20_000L
+const val LIVE_EVERY_MS = 2 * 60_000L
 
 class Slide(val item: Item, val kind: String, val photo: Photo? = null, val spread: Spread? = null, val clip: Clip? = null)
 
@@ -229,10 +234,17 @@ class FrameView(ctx: Context, private val role: Role = Role.SHOW, private val la
     private val detailsTimeout = Runnable { closeDetails() }
     private val heartbeat = object : Runnable { override fun run() { report(); main.postDelayed(this, 60_000) } }
     private val tick = object : Runnable { override fun run() { tickInfo(); main.postDelayed(this, 15_000) } }
-    private val liveTick = object : Runnable { override fun run() { refreshLive(); main.postDelayed(this, 5 * 60_000L) } }
+    /** Live data from the bridge; every 2 minutes so the guest Wi-Fi card follows guests coming and going. */
+    private val liveTick = object : Runnable { override fun run() { refreshLive(); main.postDelayed(this, LIVE_EVERY_MS) } }
     private val prodTick = object : Runnable { override fun run() { refreshProd(); main.postDelayed(this, 30 * 60_000L) } }
     private val swapTick = object : Runnable { override fun run() { rotateTile(); main.postDelayed(this, 90_000) } }
     private val shiftTick = object : Runnable { override fun run() { burnIn(); main.postDelayed(this, 75_000) } }
+    private val newsColTick = object : Runnable {
+        override fun run() { if (newsColumnOn()) { newsColIx++; buildGlanceRow(animate = true); scene.invalidate() }; main.postDelayed(this, NEWS_COLUMN_MS) }
+    }
+    /** The guest Wi-Fi card is up from the remote until then (elapsedRealtime); 0 when it was not asked for. */
+    private var wifiUntil = 0L
+    private val wifiExpire = Runnable { wifiUntil = 0L; Log.i(TAG, "[$label] guest Wi-Fi card put away (time)"); buildGlanceRow(animate = true); scene.invalidate() }
     private val modeListener: (String) -> Unit = { _ -> }
 
     init {
@@ -277,8 +289,9 @@ class FrameView(ctx: Context, private val role: Role = Role.SHOW, private val la
             buildChrome()
             textRoot.alpha = 0f
             main.post(tick)
-            main.postDelayed(liveTick, 5 * 60_000L)
+            main.postDelayed(liveTick, LIVE_EVERY_MS)
             main.postDelayed(swapTick, 90_000)
+            main.postDelayed(newsColTick, NEWS_COLUMN_MS)
             // no burn-in drift: you want the text to stay put, and the TV it was built on is LCD (no burn-in)
         }
         main.postDelayed(prodTick, 30 * 60_000L)
@@ -380,7 +393,7 @@ class FrameView(ctx: Context, private val role: Role = Role.SHOW, private val la
         if (stopped) return
         failures = 0
         shownCount++
-        Log.i(TAG, "[$label] shown #$shownCount ${current?.kind} ${item.id} $stats")
+        Log.i(TAG, "[$label] shown #$shownCount ${current?.kind} ${item.id} $stats native=${MemoryValve.nativeMb()}MB")
         if (shownCount == 1 && !precacheStarted) { precacheStarted = true; startPrecache() }
         val sq = seq ?: return
         next = sq.next()?.also { nextFile = prefetch(it) }
@@ -514,10 +527,44 @@ class FrameView(ctx: Context, private val role: Role = Role.SHOW, private val la
 
     private val ts get() = tune.tileScale
     private val ss get() = tune.smallScale
-    // the rotating tile; sun, air and headlines only while the server sends them (each is a setting there)
-    private val tiles get() = listOf("sun", "air", "news", "otd").filter { it == "otd" || live()?.optJSONObject(it) != null }
+    // the rotating tile; sun, air and headlines only while the server sends them (each is a setting there), and
+    // headlines not while they have a column of their own
+    private val tiles get() = listOf("sun", "air", "news", "otd").filter {
+        it == "otd" || live()?.optJSONObject(it) != null && !(it == "news" && newsColumnOn())
+    }
     private val weatherG = Group(); private val homeG = Group(); private val swapG = Group(); private val timeG = Group()
-    private val wifiG = Group()
+    private val wifiG = Group(); private val newsG = Group()
+    private var newsColIx = 0
+
+    /** The guest Wi-Fi card's data, when the server has a QR code for it. */
+    private fun wifiData(): JSONObject? = live()?.optJSONObject("wifi")?.takeIf { (it.optJSONArray("qr")?.length() ?: 0) > 0 }
+
+    /** The card is up while the server says so (guests over, or always: bridge.py wifi_card) or the remote asked for it. */
+    private fun wifiShown(): Boolean {
+        val w = wifiData() ?: return false
+        return w.optBoolean("show", true) || SystemClock.elapsedRealtime() < wifiUntil
+    }
+
+    private fun newsItems(): List<String> =
+        live()?.optJSONObject("news")?.optJSONArray("items").objs().map { it.optString("title") }.filter { it.isNotEmpty() && it.length <= 84 }
+
+    /** With the guest Wi-Fi card away (no guests over), its place cycles through the headlines. */
+    private fun newsColumnOn(): Boolean = !wifiShown() && newsItems().isNotEmpty()
+
+    /** Up on the remote: the guest Wi-Fi card comes up for WIFI_SUMMON_MS, or goes away again. */
+    private fun toggleWifi() {
+        main.removeCallbacks(wifiExpire)
+        if (SystemClock.elapsedRealtime() < wifiUntil) {
+            wifiUntil = 0L
+            Log.i(TAG, "[$label] guest Wi-Fi card put away (remote)")
+        } else {
+            wifiUntil = SystemClock.elapsedRealtime() + WIFI_SUMMON_MS
+            main.postDelayed(wifiExpire, WIFI_SUMMON_MS)
+            Log.i(TAG, "[$label] guest Wi-Fi card up (remote)")
+        }
+        buildGlanceRow(animate = true)
+        scene.invalidate()
+    }
 
     private fun kStyle() = TStyle(Fonts.Face.TEXT_MEDIUM, 38f * ss, withAlpha(INK, .66f))
     private fun smStyle() = TStyle(Fonts.Face.TEXT, 42f * ss, withAlpha(INK, .8f), lineHeight = 1.3f)
@@ -555,11 +602,11 @@ class FrameView(ctx: Context, private val role: Role = Role.SHOW, private val la
      * reading, a tile rotating or a column coming or going never pops.
      */
     private fun buildGlanceRow(animate: Boolean = false) {
-        val groups = listOf(timeG, wifiG, weatherG, homeG, swapG)
+        val groups = listOf(timeG, wifiG, newsG, weatherG, homeG, swapG)
         val before = groups.associateWith { Triple(ArrayList(it.kids), sig(it), it.alpha) }
         val ghosts = rowG.kids.filter { it is Group && it.javaClass == Group::class.java && it !== glanceCapG && it !in groups }
         rowG.kids.removeAll { it !== glanceCapG && it !in ghosts }
-        timeG.clear(); weatherG.clear(); homeG.clear(); swapG.clear(); wifiG.clear()
+        timeG.clear(); weatherG.clear(); homeG.clear(); swapG.clear(); wifiG.clear(); newsG.clear()
         val bottom = 2160f - 170f
         val warm = 0xC7FFD6AA.toInt()
         // time and date, bottom left
@@ -574,8 +621,8 @@ class FrameView(ctx: Context, private val role: Role = Role.SHOW, private val la
         // columns from the right edge: weather, home, the rotating tile (calendar is not wired, so it is left out)
         val cols = ArrayList<Pair<Group, Float>>()
         val lv = live()
-        val wifi = lv?.optJSONObject("wifi")?.takeIf { (it.optJSONArray("qr")?.length() ?: 0) > 0 }
-        if (wifi != null) cols += wifiG to 720f
+        val wifi = wifiData()
+        if (wifi != null && wifiShown()) cols += wifiG to 720f else if (newsColumnOn()) cols += newsG to 720f
         if (lv?.optJSONObject("weather") != null) cols += weatherG to 480f
         val homeRows = lv?.optJSONObject("home")?.optJSONArray("rows")
         if (homeRows != null && homeRows.length() > 0) cols += homeG to 660f
@@ -593,6 +640,7 @@ class FrameView(ctx: Context, private val role: Role = Role.SHOW, private val la
             val st = Stack(cx, cw)
             when (g) {
                 wifiG -> wifiStack(st, wifi!!)
+                newsG -> newsStack(st, newsColIx)
                 weatherG -> weatherStack(st, lv!!)
                 homeG -> homeStack(st, homeRows!!)
                 else -> swapStack(st, tiles[tileIx % tiles.size])
@@ -636,7 +684,8 @@ class FrameView(ctx: Context, private val role: Role = Role.SHOW, private val la
         st.add(para.height(scene.scale, scene.glow), 12f * ss) { y -> para.also { it.y = y } }
     }
 
-    /** Guest Wi-Fi: a QR code that joins the network (camera app), with the name beside it. Always on. */
+    /** Guest Wi-Fi: a QR code that joins the network (camera app), with the name beside it. While guests are over, or
+     *  as the server is set (bridge.py wifi_card), and for a few minutes after Up on the remote. */
     private fun wifiStack(st: Stack, wifi: JSONObject) {
         val q = 280f * ts
         val kSt = kStyle()
@@ -730,13 +779,7 @@ class FrameView(ctx: Context, private val role: Role = Role.SHOW, private val la
                 }
                 para("US AQI, PM2.5 ${a.optDouble("pm25")} µg/m³", sm, 12f * ss + 14f)
             }
-            "news" -> {
-                val items = lv?.optJSONObject("news")?.optJSONArray("items").objs().map { it.optString("title") }.filter { it.isNotEmpty() && it.length <= 84 }
-                if (items.isEmpty()) { k("Headlines"); para("No headlines yet", sm, 12f * ss); return }
-                val src = lv?.optJSONObject("news")?.optString("source", "News") ?: "News"
-                k("$src headlines  ${newsIx % items.size + 1} of ${items.size}")
-                para(items[newsIx % items.size], TStyle(Fonts.Face.SANS, 56f * ts, lineHeight = 1.18f), 0f, lines = 3)
-            }
+            "news" -> newsStack(st, newsIx)
             else -> {
                 val o = otd()
                 if (o == null) { k("From your photos"); para("Nothing from this time of year yet", sm, 12f * ss); return }
@@ -764,6 +807,23 @@ class FrameView(ctx: Context, private val role: Role = Role.SHOW, private val la
                 if (otdThumb == null) loadThumb(o.first)
             }
         }
+    }
+
+    /** One headline, the [ix]th (wrapping), under its source and place in the list. */
+    private fun newsStack(st: Stack, ix: Int) {
+        val kSt = kStyle()
+        val items = newsItems()
+        if (items.isEmpty()) {
+            st.add(lh(kSt)) { y -> TextNode("Headlines", kSt, st.x, y, anchorBaseline = false, maxW = st.w) }
+            val p = ParaNode("No headlines yet", smStyle(), st.x, 0f, st.w, maxLines = 2)
+            st.add(p.height(scene.scale, scene.glow), 12f * ss) { y -> p.also { it.y = y } }
+            return
+        }
+        val src = live()?.optJSONObject("news")?.optString("source", "News") ?: "News"
+        val label = "$src headlines  ${ix % items.size + 1} of ${items.size}"
+        st.add(lh(kSt)) { y -> TextNode(label, kSt, st.x, y, anchorBaseline = false, maxW = st.w) }
+        val p = ParaNode(items[ix % items.size], TStyle(Fonts.Face.SANS, 56f * ts, lineHeight = 1.18f), st.x, 0f, st.w, maxLines = 3)
+        st.add(p.height(scene.scale, scene.glow), 0f) { y -> p.also { it.y = y } }
     }
 
     /** A photo from this day (or week, or month) in an earlier year, and its label. */
@@ -841,7 +901,8 @@ class FrameView(ctx: Context, private val role: Role = Role.SHOW, private val la
     }
 
     // ---------------------------------------------------------------------------------------------
-    // photo details: OK opens and closes them; Back closes them. Other keys are left to the caller.
+    // photo details: OK opens and closes them; Back closes them. Up brings the guest Wi-Fi card up or puts it away.
+    // Other keys are left to the caller.
 
     /** True when the key was used here. */
     fun handleKey(e: android.view.KeyEvent): Boolean {
@@ -857,6 +918,11 @@ class FrameView(ctx: Context, private val role: Role = Role.SHOW, private val la
         }
         if (ok) {
             if (e.action == android.view.KeyEvent.ACTION_DOWN && e.repeatCount == 0) { if (d.isOpen) closeDetails() else openDetails() }
+            return true
+        }
+        // without a QR code on the server, Up does what it always did (wakes the TV from the screensaver)
+        if (k == android.view.KeyEvent.KEYCODE_DPAD_UP && wifiData() != null && prod != null) {
+            if (e.action == android.view.KeyEvent.ACTION_DOWN && e.repeatCount == 0) toggleWifi()
             return true
         }
         if (k == android.view.KeyEvent.KEYCODE_BACK && d.isOpen) {

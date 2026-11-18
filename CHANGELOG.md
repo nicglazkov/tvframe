@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.2
+
+- **Guest Wi-Fi when it is needed.** The guest Wi-Fi card follows a Home Assistant entity that says whether guests are over (`"guests"` in `home_entities.json`), and **Up** on the remote brings it up for 5 minutes in any case. `TVFRAME_GUEST_WIFI` picks `auto`, `always` or `button`. While it is away, its place cycles through the headlines (when they are on). See [Guest Wi-Fi card](docs/GUIDE.md#guest-wi-fi-card), which also documents the card's file for the first time.
+- Glance picks up new live data every 2 minutes instead of 5.
+- **Memory.** The TV app's native memory grew by about 200 MB a day while the screensaver ran, until the Streamer ran short and swapped. The app now starts itself over when it has grown past 600 MB and nothing of it is on screen, and it logs its size with every slide while the cause is tracked down.
+
 ## 0.4.1
 
 - **Online extras are off until you turn them on.** Weather and air quality (Open-Meteo), headlines (NPR), place names (OpenStreetMap) and satellite maps (Esri) each have an on/off line in `config.env`, and `setup` asks about each one. Off, TV Frame never contacts that service. See [Online extras](docs/GUIDE.md#online-extras).

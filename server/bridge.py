@@ -4,7 +4,8 @@
 The TV app talks only to this bridge, never to Home Assistant, so the HA token stays on the server
 (HA_TOKEN_FILE in config.env, mode 0600). Without HA_URL the bridge still serves everything but the home states.
 
-  GET  /live                   site/data/live.json plus real home states from HA and the guest Wi-Fi QR
+  GET  /live                   site/data/live.json plus real home states from HA and the guest Wi-Fi QR (with
+                               "show": whether the card is up now, see guests_now)
   GET  /status                 health text
   GET  /sonos?v=N&wait=S       what the Sonos speakers play (long-polls until it changes from version N); Quiet Home's card
   GET  /art?e=ENTITY           that speaker's album art, fetched from HA so the TV never needs a token
@@ -166,6 +167,28 @@ def rain_soon(live):
     return None
 
 
+def guests_now():
+    """True or False when Home Assistant knows whether guests are over (the "guests" entity in HA_ENTITIES: a binary
+    sensor or switch that is on, a person or tracker at home, or a count above zero), None when it cannot say."""
+    if "guests" not in HOME_ENTITIES or not state["ha_ok"]:
+        return None
+    v = str((home.get("guests") or {}).get("state", "")).lower()
+    if v in ("", "unavailable", "unknown"):
+        return None
+    try:
+        return float(v) > 0
+    except ValueError:
+        return v in ("on", "home", "true", "yes", "open", "detected")
+
+
+def wifi_card(wifi):
+    """The guest Wi-Fi card for /live: shown always, never (the remote's Up still brings it up), or while guests are
+    over. When Home Assistant cannot say, it shows, as it did before there was a choice."""
+    g = guests_now()
+    show = {"always": True, "button": False}.get(tvconf.GUEST_WIFI, g is not False)
+    return dict(wifi, show=show, guests=g)
+
+
 def home_rows(live):
     """Plain rows for the glance Home tile, only from real states. Empty when HA has nothing.
     Inside and outside always; rain, music and laundry only while they matter. At most 5 rows."""
@@ -229,7 +252,7 @@ class H(BaseHTTPRequestHandler):
                 live = {}
             live["home"] = {"rows": home_rows(live), "ok": state["ha_ok"]}
             try:
-                live["wifi"] = json.load(open(WIFI_QR))
+                live["wifi"] = wifi_card(json.load(open(WIFI_QR)))
             except Exception:
                 pass
             return self.send_json(live)
@@ -273,7 +296,8 @@ class H(BaseHTTPRequestHandler):
                     cond.wait(end - time.time())
             return self.send_json(cmds)
         if path == "/status":
-            b = f"ok ha={'up' if state['ha_ok'] else 'down'}\n".encode()
+            g = {True: "yes", False: "no", None: "unknown"}[guests_now()]
+            b = f"ok ha={'up' if state['ha_ok'] else 'down'} guests={g} wifi_card={tvconf.GUEST_WIFI}\n".encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/plain")
             self.send_header("Content-Length", str(len(b)))

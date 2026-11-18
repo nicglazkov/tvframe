@@ -11,5 +11,6 @@
   "washer_done": "sensor.washer_end_time",
   "dryer": "sensor.dryer_machine_state",
   "dryer_left": "sensor.dryer_time_remaining",
-  "dryer_done": "sensor.dryer_end_time"
+  "dryer_done": "sensor.dryer_end_time",
+  "guests": "binary_sensor.guests_over"
 }

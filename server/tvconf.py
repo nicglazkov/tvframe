@@ -59,6 +59,14 @@ HA_TOKEN_FILE = path("HA_TOKEN_FILE", "~/.config/tvframe/ha_token")
 LIVE_LAT, LIVE_LON, LIVE_PLACE = get("LIVE_LAT"), get("LIVE_LON"), get("LIVE_PLACE")
 
 
+# The guest Wi-Fi card on Glance (needs ~/.config/tvframe/wifi_qr.json): auto (while Home Assistant says guests are
+# over, from the "guests" entity in HA_ENTITIES; always when there is no such entity), always, or button (only when
+# Up is pressed on the remote). In every mode Up brings the card up for a few minutes.
+GUEST_WIFI = get("TVFRAME_GUEST_WIFI", "auto").lower()
+if GUEST_WIFI not in ("auto", "always", "button"):
+    GUEST_WIFI = "auto"
+
+
 def on(key):
     return get(key).lower() in ("on", "yes", "true", "1")
 

@@ -10,8 +10,9 @@ class FrameDreamService : DreamService() {
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        // OK shows the photo's details (and closes them); Back closes them. Every other key wakes the TV, like the
-        // stock ambient mode. The Home key never gets here: the accessibility service takes it first.
+        // OK shows the photo's details (and closes them); Back closes them; Up brings the guest Wi-Fi card up (and
+        // puts it away). Every other key wakes the TV, like the stock ambient mode. The Home key never gets here: the
+        // accessibility service takes it first.
         isInteractive = true
         isFullscreen = true
         isScreenBright = true
@@ -38,6 +39,7 @@ class FrameDreamService : DreamService() {
         show?.stop()
         show = null
         super.onDreamingStopped()
+        MemoryValve.check()
     }
 
     override fun onDetachedFromWindow() {

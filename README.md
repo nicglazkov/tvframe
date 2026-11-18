@@ -29,6 +29,7 @@
 - **Real 4K.** Google TV draws its interface at 1080p. TV Frame plays each photo as a one-frame video instead, so the picture is a full 3840 x 2160 with crisp text on top.
 - **Glance.** When the TV sits idle it fills with your photos, with the clock, today's weather, your home and one rotating tile: golden hour, air quality, a headline, or a photo from this week years ago.
 - **Clips that never get cut off.** Short videos mix in, start on their best moment, loop seamlessly two or three times and always finish on their last frame.
+- **Guest Wi-Fi when it is needed.** A QR code for your guest network, shown while guests are over (Home Assistant can tell) or when someone presses Up.
 - **Details on demand.** Press OK on the remote for where and when, the camera and lens, the exposure, and (if you turn it on) a satellite map of the spot.
 - **A quiet home screen**, if you want it: your apps over a photo, no ads, with the Google TV home one click away.
 - **A photo manager on your phone.** Folders become groups on the TV. Every photo is scored and near-duplicates are grouped. Hide, boost, trim clips and choose framing, for many at once.
