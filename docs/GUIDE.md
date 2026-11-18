@@ -153,7 +153,7 @@ Instead of NPR's top stories, Glance can cycle through a few levels of news, one
 TVFRAME_NEWS_FEEDS="Local=google:Springfield, Illinois; Illinois=https://example.org/feed/; U.S.=google:US; World=https://feeds.bbci.co.uk/news/world/rss.xml"
 ```
 
-A feed is any RSS address, or one of the Google News shortcuts: `google:US`, `google:WORLD`, or `google:<town, state>` for local stories (Google News is then sent that town). Up to three headlines come from each level. Questions, advice pieces ("7 ways to..."), lists, opinion and titles too long for the screen are left out. Changes show within 20 minutes.
+A feed is any RSS address, or one of the Google News shortcuts: `google:US`, `google:WORLD`, or `google:<town, state>` for local stories (Google News is then sent that town). Up to three headlines come from each level. Questions, advice pieces ("7 ways to..."), lists and opinion are left out. A long headline is shown whole, in smaller type. Changes show within 20 minutes.
 
 **Google Photos shared albums** ([`ingest/`](../ingest/README.md)) are a separate, manual tool: nothing runs it unless you set it up yourself. Read the note at the top of its README first.
 

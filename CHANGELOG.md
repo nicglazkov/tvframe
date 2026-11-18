@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.4
+
+- **Long headlines show whole.** Instead of being skipped or cut off with "...", a long headline is set smaller, on up to four lines in the same space.
+
 ## 0.4.3
 
 - **Headlines by level.** `TVFRAME_NEWS_FEEDS` lists a feed for each level of news you want, for example your town, your state, the country and the world, and Glance shows one headline at a time from each in turn, labeled with its level and source. Google News shortcuts cover local, national and world news. See [Headlines by level](docs/GUIDE.md#headlines-by-level).

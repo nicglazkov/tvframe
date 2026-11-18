@@ -47,7 +47,7 @@ if tvconf.WEATHER:
         print('air failed', e); out['air'] = old.get('air')
 # Headlines: one feed per level (TVFRAME_NEWS_FEEDS, "Label=feed; Label=feed"), shown in turn, or NPR's top stories.
 # A feed is an RSS address, or google:US, google:WORLD or google:<place> for Google News. Advice pieces, lists,
-# questions, opinion and very long titles are left out: the TV has room for about three short lines.
+# questions and opinion are left out. Long titles are kept: the TV sets them smaller so they show whole.
 GOOGLE = 'https://news.google.com/rss/headlines/section/{}?hl=en-US&gl=US&ceid=US:en'
 SKIP = re.compile(r"\?|^(op-?ed|opinion|commentary|editorial|analysis|letters?|list|watch|video|photos|quiz|podcast)\b|"
                   r"\b\d+ (ways|things|tips|reasons|signs|questions|best|places)\b|\bhow to\b|\bwhat (to|you need to) know\b|"
@@ -71,7 +71,7 @@ def headlines(label, f, n=3):
         src = (i.findtext('source') or '').strip()
         if src and t.endswith(' - ' + src):
             t = t[:-len(src) - 3]
-        if not t or len(t) > 80 or SKIP.search(t) or len(SPANISH & set(t.lower().split())) >= 2:
+        if not t or len(t) > 160 or SKIP.search(t) or len(SPANISH & set(t.lower().split())) >= 2:
             continue
         got.append({'title': t, 'date': i.findtext('pubDate'), 'level': label, 'source': src or name})
         if len(got) == n:

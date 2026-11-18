@@ -546,7 +546,7 @@ class FrameView(ctx: Context, private val role: Role = Role.SHOW, private val la
     }
 
     private fun newsItems(): List<JSONObject> =
-        live()?.optJSONObject("news")?.optJSONArray("items").objs().filter { it.optString("title").let { t -> t.isNotEmpty() && t.length <= 84 } }
+        live()?.optJSONObject("news")?.optJSONArray("items").objs().filter { it.optString("title").isNotEmpty() }
 
     /** With the guest Wi-Fi card away (no guests over), its place cycles through the headlines. */
     private fun newsColumnOn(): Boolean = !wifiShown() && newsItems().isNotEmpty()
@@ -824,8 +824,20 @@ class FrameView(ctx: Context, private val role: Role = Role.SHOW, private val la
         val label = if (level.isNotEmpty()) listOf(level, item.optString("source")).filter { it.isNotEmpty() }.distinct().joinToString("  ·  ")
             else "${live()?.optJSONObject("news")?.optString("source", "News") ?: "News"} headlines  ${ix % items.size + 1} of ${items.size}"
         st.add(lh(kSt)) { y -> TextNode(label, kSt, st.x, y, anchorBaseline = false, maxW = st.w) }
-        val p = ParaNode(item.optString("title"), TStyle(Fonts.Face.SANS, 56f * ts, lineHeight = 1.18f), st.x, 0f, st.w, maxLines = 3)
+        val p = fitHeadline(item.optString("title"), st)
         st.add(p.height(scene.scale, scene.glow), 0f) { y -> p.also { it.y = y } }
+    }
+
+    /** The headline whole, at the largest size that holds it: three lines from 56 px down, then four smaller lines in
+     *  the same height. Only a title too long for even that ends in an ellipsis. */
+    private fun fitHeadline(text: String, st: Stack): ParaNode {
+        var p: ParaNode? = null
+        for ((size, lines) in listOf(56f to 3, 50f to 3, 45f to 3, 41f to 4, 37f to 4)) {
+            p = ParaNode(text, TStyle(Fonts.Face.SANS, size * ts, lineHeight = 1.18f), st.x, 0f, st.w, maxLines = lines)
+            val l = p.layout(scene.scale, scene.glow)
+            if (l.getEllipsisCount(l.lineCount - 1) == 0) return p
+        }
+        return p!!
     }
 
     /** A photo from this day (or week, or month) in an earlier year, and its label. */
